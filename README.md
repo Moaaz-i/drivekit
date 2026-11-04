@@ -9,11 +9,14 @@
 </p>
 
 <p align="center">
+  <a href="https://moaaz-i.github.io/drivekit/"><img src="https://img.shields.io/badge/Docs-Live%20Website-0284c7?style=flat&logo=vitepress" alt="Documentation" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-Ready-blue.svg" alt="TypeScript" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg" alt="Node.js" /></a>
   <a href="https://github.com/Moaaz-i/drivekit"><img src="https://img.shields.io/badge/GitHub-Moaaz--i%2Fdrivekit-181717?logo=github" alt="GitHub" /></a>
 </p>
+
+> 📚 **Complete Documentation**: Explore interactive guides, API references, and examples in English and Arabic at **[moaaz-i.github.io/drivekit](https://moaaz-i.github.io/drivekit/)**.
 
 ---
 

@@ -62,7 +62,7 @@
   "bugs": {
     "url": "https://github.com/Moaaz-i/drivekit/issues"
   },
-  "homepage": "https://github.com/Moaaz-i/drivekit#readme",
+  "homepage": "https://moaaz-i.github.io/drivekit/",
   "dependencies": {
     "@googleapis/drive": "^27.0.0",
     "chalk": "^5.3.0",

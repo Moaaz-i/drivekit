@@ -1,14 +1,16 @@
 import { defineConfig } from 'vitepress';
 
+const base = process.env.GITHUB_ACTIONS ? '/drivekit/' : '/';
+
 export default defineConfig({
   title: 'DriveKit',
   description: 'The fast, powerful, and developer-friendly Google Drive SDK & CLI',
-  base: '/',
+  base,
   lastUpdated: true,
   cleanUrls: true,
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
     ['meta', { name: 'theme-color', content: '#0284c7' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'DriveKit | Ultra-Fast Google Drive SDK' }],
