@@ -1,10 +1,19 @@
-# ⚡ DriveKit
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Moaaz-i/drivekit/main/docs/public/logo.svg" width="120" height="107" alt="DriveKit - Google Drive SDK" />
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
+<h1 align="center">DriveKit</h1>
 
-> **DriveKit** is a fast, powerful, and developer-friendly Google Drive SDK and CLI for JavaScript and TypeScript.
+<p align="center">
+  <strong>Ultra-fast, elegant Google Drive SDK & CLI for modern JavaScript & TypeScript developers.</strong>
+</p>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-Ready-blue.svg" alt="TypeScript" /></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg" alt="Node.js" /></a>
+  <a href="https://github.com/Moaaz-i/drivekit"><img src="https://img.shields.io/badge/GitHub-Moaaz--i%2Fdrivekit-181717?logo=github" alt="GitHub" /></a>
+</p>
 
 ---
 

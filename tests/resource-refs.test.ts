@@ -44,3 +44,4 @@ describe('Plugin System', () => {
     expect(afterHook).toHaveBeenCalledOnce();
   });
 });
+

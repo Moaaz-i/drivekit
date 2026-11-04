@@ -60,3 +60,4 @@ export class PluginManager {
     return current;
   }
 }
+
