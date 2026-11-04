@@ -1,0 +1,141 @@
+/**
+ * DriveKit VitePress Theme Customizations
+ * Modern Glassmorphism & Cyberpunk Neon Accent Styling
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --vp-c-brand-1: #0284c7;
+  --vp-c-brand-2: #38bdf8;
+  --vp-c-brand-3: #0369a1;
+  --vp-c-brand-soft: rgba(56, 189, 248, 0.14);
+
+  --dk-gradient-primary: linear-gradient(135deg, #38bdf8 0%, #10b981 50%, #f59e0b 100%);
+  --dk-gradient-text: linear-gradient(120deg, #38bdf8 20%, #34d399 50%, #fbbf24 90%);
+
+  --vp-font-family-base: 'IBM Plex Sans Arabic', system-ui, -apple-system, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', monospace;
+}
+
+.dark {
+  --vp-c-brand-1: #38bdf8;
+  --vp-c-brand-2: #0ea5e9;
+  --vp-c-brand-3: #7dd3fc;
+  --vp-c-brand-soft: rgba(14, 165, 233, 0.16);
+
+  --vp-c-bg: #090d16;
+  --vp-c-bg-alt: #0f172a;
+  --vp-c-bg-elv: #131d35;
+  --vp-c-bg-soft: #111a2e;
+}
+
+/* RTL Typography & Direction */
+[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+[dir="rtl"] .VPNavBarMenuLink,
+[dir="rtl"] .VPSidebarItem {
+  text-align: right;
+}
+
+[dir="rtl"] .VPHero .name {
+  background: var(--dk-gradient-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Home Hero Customization */
+.VPHero .name {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: var(--dk-gradient-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.VPHero .tagline {
+  max-width: 680px;
+  line-height: 1.7;
+  font-size: 1.25rem;
+}
+
+/* Glassmorphic Feature Cards */
+.VPFeature {
+  background: rgba(15, 23, 42, 0.6) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.12) !important;
+  border-radius: 16px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.VPFeature:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 12px 30px -10px rgba(14, 165, 233, 0.2);
+}
+
+.VPFeature .icon {
+  font-size: 2rem;
+  background: rgba(56, 189, 248, 0.1) !important;
+  border-radius: 12px;
+  padding: 8px;
+  display: inline-block;
+}
+
+.VPFeature .title {
+  font-weight: 700 !important;
+  color: #f8fafc;
+  margin-top: 12px;
+}
+
+.VPFeature .details {
+  line-height: 1.6;
+  color: #94a3b8 !important;
+}
+
+/* Mac-Style Code Block Window Headers */
+div[class*='language-'] {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  position: relative;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
+}
+
+/* Interactive Pill Badges */
+.badge-neon {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}

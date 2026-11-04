@@ -6,6 +6,7 @@ import ora from 'ora';
 import { DriveKit } from './core/client.js';
 import { formatBytes } from './utils/format.js';
 import { DriveKitAuthConfig } from './types.js';
+import { runInteractiveExplorer, renderFileRow } from './cli/terminal-ui.js';
 
 const program = new Command();
 
@@ -79,18 +80,26 @@ program
       }
 
       console.log(chalk.bold.cyan(`\n📁 Contents of "${folder}":\n`));
-      for (const item of items) {
-        const isDir = item.mimeType === 'application/vnd.google-apps.folder';
-        const icon = isDir ? '📁' : '📄';
-        const nameFormatted = isDir ? chalk.bold.blue(item.name) : chalk.white(item.name);
-        const sizeFormatted = item.size ? chalk.dim(`[${formatBytes(parseInt(item.size, 10))}]`) : chalk.dim(isDir ? '[DIR]' : '[Google Doc]');
-        const idFormatted = chalk.dim(`(ID: ${item.id})`);
-
-        console.log(` ${icon}  ${nameFormatted.padEnd(40)} ${sizeFormatted.padEnd(16)} ${idFormatted}`);
+      for (let i = 0; i < items.length; i++) {
+        console.log(renderFileRow(items[i], i));
       }
       console.log(`\nTotal items: ${chalk.green(items.length)}\n`);
     } catch (err: any) {
       spinner.fail(chalk.red(`Failed to list items: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+// Command: explore (Interactive TUI)
+program
+  .command('explore [folder]')
+  .description('Interactive terminal keyboard file explorer (TUI) for Google Drive')
+  .action(async (folder = '/', options) => {
+    try {
+      const client = await getClient(options);
+      await runInteractiveExplorer(client, folder);
+    } catch (err: any) {
+      console.error(chalk.red(`Explorer failed: ${err.message}`));
       process.exit(1);
     }
   });

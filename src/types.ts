@@ -110,6 +110,8 @@ export interface UploadOptions {
   /** Custom properties / metadata */
   properties?: Record<string, string>;
   appProperties?: Record<string, string>;
+  /** Optional AbortSignal for instant operation cancellation */
+  signal?: AbortSignal;
 }
 
 /**
@@ -122,6 +124,8 @@ export interface DownloadOptions {
   onProgress?: (progress: DownloadProgress) => void;
   /** Export MIME type for Google Workspace documents */
   exportMimeType?: string;
+  /** Optional AbortSignal for instant operation cancellation */
+  signal?: AbortSignal;
 }
 
 /**

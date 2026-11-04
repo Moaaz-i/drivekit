@@ -161,6 +161,9 @@ export class ResumableUploader {
 
     try {
       while (bytesSent < totalBytes) {
+        if (options.signal?.aborted) {
+          throw new Error('Upload aborted by user signal');
+        }
         chunkIndex++;
         const currentChunkSize = Math.min(chunkSize, totalBytes - bytesSent);
         const buffer = Buffer.alloc(currentChunkSize);
@@ -241,6 +244,9 @@ export class ResumableUploader {
     let chunkIndex = 0;
 
     while (bytesSent < totalBytes) {
+      if (options.signal?.aborted) {
+        throw new Error('Upload aborted by user signal');
+      }
       chunkIndex++;
       const currentChunkSize = Math.min(chunkSize, totalBytes - bytesSent);
       const chunk = buffer.subarray(bytesSent, bytesSent + currentChunkSize);

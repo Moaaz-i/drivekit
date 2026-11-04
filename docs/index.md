@@ -5,6 +5,9 @@ hero:
   name: DriveKit
   text: أداة Google Drive فائقة السرعة للمطورين
   tagline: تعامل مع Google Drive كنظام ملفات حقيقي، ارفع الملفات الضخمة بالقطع القابلة للاستئناف، وابحث بسلاسة ومرونة مطلقة.
+  image:
+    src: /logo.svg
+    alt: DriveKit Logo
   actions:
     - theme: brand
       text: ابدأ الآن 🚀

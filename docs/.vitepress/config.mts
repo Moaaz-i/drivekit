@@ -7,6 +7,14 @@ export default defineConfig({
   lastUpdated: true,
   cleanUrls: true,
 
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['meta', { name: 'theme-color', content: '#0284c7' }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:title', content: 'DriveKit | Ultra-Fast Google Drive SDK' }],
+    ['meta', { property: 'og:description', content: 'Modern, high-performance Google Drive SDK with virtual paths, resumable chunked uploads, and CLI.' }],
+  ],
+
   locales: {
     root: {
       label: 'العربية',
@@ -131,8 +139,10 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: '/logo.svg',
+    siteTitle: 'DriveKit',
     socialLinks: [
-      { icon: 'github', link: 'https://github.com' },
+      { icon: 'github', link: 'https://github.com/Moaaz-i/drivekit' },
     ],
     footer: {
       message: 'Released under the MIT License.',

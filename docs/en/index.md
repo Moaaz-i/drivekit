@@ -5,6 +5,9 @@ hero:
   name: DriveKit
   text: Ultra-Fast Google Drive SDK for Developers
   tagline: Treat Google Drive as a real filesystem, upload large files with resumable chunks, and query with fluent elegance.
+  image:
+    src: /logo.svg
+    alt: DriveKit Logo
   actions:
     - theme: brand
       text: Get Started 🚀

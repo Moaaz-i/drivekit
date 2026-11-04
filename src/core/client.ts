@@ -20,6 +20,8 @@ import { DriveWatcher, type WatcherOptions } from './watcher.js';
 import { StorageCleaner, type DuplicateGroup } from './storage-cleaner.js';
 import { SmartSyncEngine, type PullResult, calculateFileMd5 } from './smart-sync.js';
 import { loginWithBrowser, type BrowserLoginOptions } from '../auth/browser-login.js';
+import { DriveFileRef, DriveFolderRef } from './resource-refs.js';
+import { PluginManager, type DriveKitPlugin } from './plugins.js';
 import { DriveNotFoundError } from '../errors.js';
 import { withRetry } from '../utils/retry.js';
 import { formatBytes } from '../utils/format.js';
@@ -33,11 +35,34 @@ export class DriveKit {
   private uploaderInstance: ResumableUploader | null = null;
   private downloaderInstance: Downloader | null = null;
   private rootFolderId: string;
+  private pluginManager = new PluginManager();
 
   constructor(options: DriveKitOptions = {}) {
     this.options = options;
     this.rootFolderId = options.rootFolderId || 'root';
     this.authenticator = new DriveAuthenticator(options.auth);
+  }
+
+  /**
+   * Registers a middleware plugin into DriveKit lifecycle
+   */
+  use(plugin: DriveKitPlugin): this {
+    this.pluginManager.use(plugin);
+    return this;
+  }
+
+  /**
+   * Returns a fluent, chained reference to a specific file
+   */
+  file(pathOrId: string): DriveFileRef {
+    return new DriveFileRef(this, pathOrId);
+  }
+
+  /**
+   * Returns a fluent, chained reference to a specific folder
+   */
+  folder(pathOrId: string): DriveFolderRef {
+    return new DriveFolderRef(this, pathOrId);
   }
 
   /**
@@ -171,18 +196,19 @@ export class DriveKit {
    * - Real-time progress callback: % complete, transfer speed (MB/s), ETA
    */
   async upload(options: UploadOptions): Promise<DriveApiFile> {
+    const opts = await this.pluginManager.runBeforeUpload(options);
     const uploader = await this.getUploader();
-    let parentId = options.parent;
+    let parentId = opts.parent;
 
     if (parentId && parentId.startsWith('/')) {
       parentId = await this.mkdirp(parentId);
     }
 
     // Check overwrite if requested
-    if (options.overwrite && options.name && parentId) {
+    if (opts.overwrite && opts.name && parentId) {
       const existing = await this.query()
         .inFolder(parentId)
-        .nameEquals(options.name)
+        .nameEquals(opts.name)
         .notTrashed()
         .first();
 
@@ -191,10 +217,12 @@ export class DriveKit {
       }
     }
 
-    return await uploader.upload({
-      ...options,
+    const uploaded = await uploader.upload({
+      ...opts,
       parent: parentId,
     });
+
+    return await this.pluginManager.runAfterUpload(uploaded);
   }
 
   /**
@@ -205,8 +233,10 @@ export class DriveKit {
    */
   async download(fileIdOrPath: string, options: DownloadOptions = {}) {
     const fileId = await this.resolveId(fileIdOrPath);
+    const processedOpts = await this.pluginManager.runBeforeDownload(fileId, options);
     const downloader = await this.getDownloader();
-    return await downloader.download(fileId, options);
+    const result = await downloader.download(fileId, processedOpts);
+    return await this.pluginManager.runAfterDownload(result);
   }
 
   /**
