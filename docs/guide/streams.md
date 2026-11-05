@@ -65,3 +65,4 @@ const uploadStream = await folder.createWriteStream('live-backup.dump');
 
 databaseProcess.stdout.pipe(uploadStream);
 ```
+
