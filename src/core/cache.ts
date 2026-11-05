@@ -48,6 +48,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   private db: any = null;
   private dbPath: string;
   private initialized = false;
+  private fallbackMemory?: MemoryMetadataCache;
 
   constructor(customPath?: string) {
     if (customPath) {
@@ -72,6 +73,9 @@ export class SqliteMetadataCache implements IMetadataCache {
       // Dynamic require so older environments or non-node runtimes don't fail parsing
       // @ts-ignore
       const { DatabaseSync } = require('node:sqlite');
+      if (!DatabaseSync) {
+        throw new Error('DatabaseSync not available');
+      }
       this.db = new DatabaseSync(this.dbPath);
 
       // Initialize Schema & Indexes
@@ -105,13 +109,16 @@ export class SqliteMetadataCache implements IMetadataCache {
 
       this.initialized = true;
     } catch (err) {
-      // If node:sqlite is disabled or fails, fallback to in-memory mode
-      this.initialized = false;
+      // If node:sqlite is not available (Node < 22.5), transparently fallback to in-memory cache
+      this.fallbackMemory = new MemoryMetadataCache();
+      this.fallbackMemory.init();
+      this.initialized = true;
       this.db = null;
     }
   }
 
   public getById(id: string): CacheFileEntry | null {
+    if (this.fallbackMemory) return this.fallbackMemory.getById(id);
     if (!this.initialized || !this.db) return null;
     const stmt = this.db.prepare('SELECT * FROM files WHERE id = ?');
     const row = stmt.get(id);
@@ -119,6 +126,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public getByPath(normalizedPath: string): CacheFileEntry | null {
+    if (this.fallbackMemory) return this.fallbackMemory.getByPath(normalizedPath);
     if (!this.initialized || !this.db) return null;
     const stmt = this.db.prepare('SELECT * FROM files WHERE path = ? AND trashed = 0 LIMIT 1');
     const row = stmt.get(normalizedPath);
@@ -126,6 +134,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public getChildren(parentId: string): CacheFileEntry[] {
+    if (this.fallbackMemory) return this.fallbackMemory.getChildren(parentId);
     if (!this.initialized || !this.db) return [];
     const stmt = this.db.prepare('SELECT * FROM files WHERE parentId = ? AND trashed = 0 ORDER BY name ASC');
     const rows = stmt.all(parentId);
@@ -133,6 +142,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public findByMd5(md5: string): CacheFileEntry | null {
+    if (this.fallbackMemory) return this.fallbackMemory.findByMd5(md5);
     if (!this.initialized || !this.db || !md5) return null;
     const stmt = this.db.prepare('SELECT * FROM files WHERE md5Checksum = ? AND trashed = 0 LIMIT 1');
     const row = stmt.get(md5.toLowerCase());
@@ -140,6 +150,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public searchByName(query: string): CacheFileEntry[] {
+    if (this.fallbackMemory) return this.fallbackMemory.searchByName(query);
     if (!this.initialized || !this.db) return [];
     const stmt = this.db.prepare('SELECT * FROM files WHERE name LIKE ? AND trashed = 0 LIMIT 50');
     const rows = stmt.all(`%${query}%`);
@@ -147,6 +158,10 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public upsertFile(entry: CacheFileEntry): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.upsertFile(entry);
+      return;
+    }
     if (!this.initialized || !this.db) return;
     const stmt = this.db.prepare(`
       INSERT INTO files (id, name, mimeType, size, parentId, path, md5Checksum, trashed, modifiedTime, updatedAt)
@@ -178,6 +193,10 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public upsertFiles(entries: CacheFileEntry[]): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.upsertFiles(entries);
+      return;
+    }
     if (!this.initialized || !this.db || entries.length === 0) return;
     // Execute inside a single transaction for maximum bulk write speed
     this.db.exec('BEGIN TRANSACTION;');
@@ -193,17 +212,26 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public deleteFile(id: string): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.deleteFile(id);
+      return;
+    }
     if (!this.initialized || !this.db) return;
     const stmt = this.db.prepare('DELETE FROM files WHERE id = ?');
     stmt.run(id);
   }
 
   public clear(): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.clear();
+      return;
+    }
     if (!this.initialized || !this.db) return;
     this.db.exec('DELETE FROM files; DELETE FROM meta;');
   }
 
   public getMeta(key: string): string | null {
+    if (this.fallbackMemory) return this.fallbackMemory.getMeta(key);
     if (!this.initialized || !this.db) return null;
     const stmt = this.db.prepare('SELECT value FROM meta WHERE key = ?');
     const row = stmt.get(key);
@@ -211,6 +239,10 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public setMeta(key: string, value: string): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.setMeta(key, value);
+      return;
+    }
     if (!this.initialized || !this.db) return;
     const stmt = this.db.prepare(`
       INSERT INTO meta (key, value) VALUES (?, ?)
@@ -220,6 +252,7 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public getStats(): CacheStats {
+    if (this.fallbackMemory) return this.fallbackMemory.getStats();
     if (!this.initialized || !this.db) {
       return {
         fileCount: 0,
@@ -254,6 +287,10 @@ export class SqliteMetadataCache implements IMetadataCache {
   }
 
   public close(): void {
+    if (this.fallbackMemory) {
+      this.fallbackMemory.close();
+      this.fallbackMemory = undefined;
+    }
     if (this.db) {
       try {
         this.db.close();
