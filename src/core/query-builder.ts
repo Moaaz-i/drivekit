@@ -137,6 +137,21 @@ export class DriveQueryBuilder {
   }
 
   /**
+   * Custom raw query condition (alias for raw)
+   */
+  custom(condition: string): this {
+    return this.raw(condition);
+  }
+
+  /**
+   * Filter: Exact MD5 checksum match
+   */
+  md5(checksum: string): this {
+    this.conditions.push(`md5Checksum = '${this.escape(checksum)}'`);
+    return this;
+  }
+
+  /**
    * Sort ordering (e.g. 'modifiedTime desc', 'name', 'folder,modifiedTime desc')
    */
   orderBy(order: string): this {
@@ -187,6 +202,13 @@ export class DriveQueryBuilder {
     });
 
     return res.data.files || [];
+  }
+
+  /**
+   * Executes query and returns array of matching files (alias for list)
+   */
+  async execute(): Promise<DriveApiFile[]> {
+    return await this.list();
   }
 
   /**

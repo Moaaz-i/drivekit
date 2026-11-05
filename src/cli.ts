@@ -109,6 +109,7 @@ program
   .command('upload <localFile> [remotePath]')
   .description('Upload a file with high speed and live progress tracking')
   .option('-o, --overwrite', 'Overwrite remote file if it exists')
+  .option('-d, --dedup', 'Enable instant cloud deduplication via MD5 hash check')
   .action(async (localFile, remotePath = '/', options) => {
     if (!fs.existsSync(localFile)) {
       console.error(chalk.red(`❌ Local file not found: ${localFile}`));
@@ -128,6 +129,7 @@ program
         name: fileName,
         parent: remotePath,
         overwrite: options.overwrite,
+        deduplicate: options.dedup,
         onProgress: (p) => {
           process.stdout.write(
             `\r🚀 Uploading: ${chalk.cyan(p.percentage + '%')} | Speed: ${chalk.green(p.speedFormatted)} | ETA: ${chalk.yellow(p.estimatedTimeRemainingSeconds + 's')} [${formatBytes(p.bytesSent)} / ${formatBytes(p.totalBytes)}]`
@@ -451,6 +453,133 @@ program
       console.log(`💾 Saved tokens to: ${chalk.bold(outPath)}\n`);
     } catch (err: any) {
       console.error(chalk.red(`Login failed: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+// Command group: cache
+const cacheCmd = program.command('cache').description('Manage local persistent SQLite metadata cache');
+
+cacheCmd
+  .command('status')
+  .description('Display SQLite cache statistics and database path')
+  .action(async (options) => {
+    try {
+      const client = await getClient(options);
+      const stats = await client.getCacheStats();
+      if (!stats) {
+        console.log(chalk.yellow('⚠️ Persistent cache is disabled or not available.'));
+        return;
+      }
+      console.log(chalk.bold.cyan('\n⚡ DriveKit Persistent SQLite Cache Status:'));
+      console.log(`📁 Database Path: ${chalk.dim(stats.databasePath)}`);
+      console.log(`📂 Cached Folders: ${chalk.bold.green(stats.folderCount.toLocaleString())}`);
+      console.log(`📄 Cached Files:   ${chalk.bold.cyan(stats.fileCount.toLocaleString())}`);
+      console.log(`💾 Indexed Size:   ${chalk.bold.white(formatBytes(stats.totalSizeBytes))}`);
+      console.log(`🕒 Last Full Sync: ${chalk.dim(stats.lastSyncTime || 'Never')}\n`);
+    } catch (err: any) {
+      console.error(chalk.red(`Cache status failed: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('sync')
+  .description('Crawl Google Drive and index all file metadata into local SQLite for 0ms lookups')
+  .action(async (options) => {
+    const spinner = ora('Indexing Google Drive metadata into SQLite...').start();
+    try {
+      const client = await getClient(options);
+      const stats = await client.syncCache({
+        onProgress: (scanned) => {
+          spinner.text = `Indexing Google Drive metadata... (${chalk.cyan(scanned.toLocaleString())} items scanned)`;
+        },
+      });
+      spinner.succeed(chalk.green(`Indexed ${stats.fileCount + stats.folderCount} items successfully!`));
+      console.log(`💾 Database: ${chalk.dim(stats.databasePath)}\n`);
+    } catch (err: any) {
+      spinner.fail(chalk.red(`Cache sync failed: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('clear')
+  .description('Clear all cached metadata from local SQLite database')
+  .action(async (options) => {
+    try {
+      const client = await getClient(options);
+      await client.clearCache();
+      console.log(chalk.green('🧹 Local SQLite cache cleared successfully.'));
+    } catch (err: any) {
+      console.error(chalk.red(`Cache clear failed: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+// Command: shared-drives
+program
+  .command('shared-drives')
+  .description('List accessible Google Workspace Shared Drives')
+  .action(async (options) => {
+    const spinner = ora('Fetching Shared Drives...').start();
+    try {
+      const client = await getClient(options);
+      const drives = await client.listSharedDrives();
+      spinner.stop();
+
+      if (drives.length === 0) {
+        console.log(chalk.yellow('\nNo Shared Drives found or accessible for this account.\n'));
+        return;
+      }
+
+      console.log(chalk.bold.cyan(`\n🏢 Google Workspace Shared Drives (${drives.length}):`));
+      for (const d of drives) {
+        console.log(`  📁 ${chalk.bold.blue(d.name.padEnd(35))} ${chalk.dim(`(ID: ${d.id})`)}`);
+      }
+      console.log('');
+    } catch (err: any) {
+      spinner.fail(chalk.red(`Failed to list shared drives: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+// Command: serve (WebDAV)
+program
+  .command('serve')
+  .description('Start embedded WebDAV server to mount DriveKit directly in macOS Finder or Windows Explorer')
+  .option('-p, --port <port>', 'Port number to listen on', '8080')
+  .option('-h, --host <host>', 'Host address to bind to', '127.0.0.1')
+  .action(async (options) => {
+    try {
+      const client = await getClient(options);
+      const port = parseInt(options.port, 10) || 8080;
+      const host = options.host || '127.0.0.1';
+
+      console.log(chalk.bold.cyan('\n⚡ DriveKit WebDAV Server'));
+      console.log('Starting local WebDAV bridge to Google Drive...\n');
+
+      const serverInstance = await client.serveWebDAV({ port, host });
+
+      console.log(chalk.bold.green(`🚀 Server active at: ${chalk.underline(serverInstance.url)}`));
+      console.log(chalk.white('\n📌 How to mount on macOS Finder:'));
+      console.log(`   1. Open Finder and press ${chalk.bold.cyan('Cmd + K')} (Connect to Server)`);
+      console.log(`   2. Enter: ${chalk.bold.yellow(serverInstance.url)}`);
+      console.log(`   3. Click ${chalk.bold('Connect')} (Connect as Guest)\n`);
+
+      console.log(chalk.white('📌 How to mount on Windows:'));
+      console.log(`   1. Open File Explorer -> This PC -> "Map network drive"`);
+      console.log(`   2. Enter: ${chalk.bold.yellow(serverInstance.url)}\n`);
+
+      console.log(chalk.dim('Press Ctrl+C to stop the WebDAV server.\n'));
+
+      process.on('SIGINT', async () => {
+        await serverInstance.close();
+        console.log(chalk.yellow('\nWebDAV server stopped. Goodbye!'));
+        process.exit(0);
+      });
+    } catch (err: any) {
+      console.error(chalk.red(`Failed to start WebDAV server: ${err.message}`));
       process.exit(1);
     }
   });

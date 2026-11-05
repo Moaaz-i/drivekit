@@ -89,6 +89,31 @@ export class DriveFileRef {
   async getLink() {
     return await this.drive.getShareableLink(this.pathOrId);
   }
+
+  /** Returns a ReadableStream for this file, optionally with byte Range requests */
+  async createReadStream(options?: { start?: number; end?: number }): Promise<NodeJS.ReadableStream> {
+    return await this.drive.createReadStream(this.pathOrId, options);
+  }
+
+  /** Grants access to a specific email with custom role and notification */
+  async grantAccess(options: {
+    email: string;
+    role?: 'reader' | 'commenter' | 'writer';
+    notify?: boolean;
+    message?: string;
+  }): Promise<DriveApiPermission> {
+    return await this.drive.grantAccess(this.pathOrId, options);
+  }
+
+  /** Revokes access by permission ID or user email */
+  async revokeAccess(permissionIdOrEmail: string): Promise<void> {
+    return await this.drive.revokeAccess(this.pathOrId, permissionIdOrEmail);
+  }
+
+  /** Lists all granted permissions on this file */
+  async listPermissions(): Promise<DriveApiPermission[]> {
+    return await this.drive.listPermissions(this.pathOrId);
+  }
 }
 
 /**
@@ -138,6 +163,25 @@ export class DriveFolderRef {
   /** Watches this folder for real-time changes */
   async watch(options: Omit<WatcherOptions, 'folderId'> = {}): Promise<DriveWatcher> {
     return await this.drive.watch(this.pathOrId, options);
+  }
+
+  /** Grants access to this entire folder */
+  async grantAccess(options: {
+    email: string;
+    role?: 'reader' | 'commenter' | 'writer';
+    notify?: boolean;
+    message?: string;
+  }): Promise<DriveApiPermission> {
+    return await this.drive.grantAccess(this.pathOrId, options);
+  }
+
+  /** Creates a writable stream directly into a file inside this folder */
+  async createWriteStream(
+    fileName: string,
+    options?: Omit<UploadOptions, 'source' | 'filename' | 'parent'>
+  ): Promise<NodeJS.WritableStream> {
+    const targetPath = this.pathOrId.endsWith('/') ? `${this.pathOrId}${fileName}` : `${this.pathOrId}/${fileName}`;
+    return await this.drive.createWriteStream(targetPath, options);
   }
 }
 

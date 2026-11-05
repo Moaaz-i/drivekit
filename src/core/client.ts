@@ -26,6 +26,7 @@ import { DriveNotFoundError } from '../errors.js';
 import { withRetry } from '../utils/retry.js';
 import { formatBytes } from '../utils/format.js';
 import { GOOGLE_WORKSPACE_MIME_TYPES } from '../utils/mime.js';
+import { SqliteMetadataCache, type IMetadataCache, type CacheStats } from './cache.js';
 
 export class DriveKit {
   private options: DriveKitOptions;
@@ -34,6 +35,7 @@ export class DriveKit {
   private pathResolverInstance: PathResolver | null = null;
   private uploaderInstance: ResumableUploader | null = null;
   private downloaderInstance: Downloader | null = null;
+  private metadataCacheInstance: IMetadataCache | null = null;
   private rootFolderId: string;
   private pluginManager = new PluginManager();
 
@@ -73,9 +75,15 @@ export class DriveKit {
       const auth = await this.authenticator.getAuthClient();
       this.driveClient = drive({ version: 'v3', auth });
 
+      if (this.options.enablePersistentCache !== false) {
+        this.metadataCacheInstance = new SqliteMetadataCache(this.options.cacheDatabasePath);
+        this.metadataCacheInstance.init();
+      }
+
       this.pathResolverInstance = new PathResolver(this.driveClient, this.rootFolderId, {
         enableCache: this.options.enablePathCache ?? true,
         cacheTTL: this.options.pathCacheTTL,
+        metadataCache: this.metadataCacheInstance || undefined,
       });
 
       this.uploaderInstance = new ResumableUploader(
@@ -205,10 +213,11 @@ export class DriveKit {
     }
 
     // Check overwrite if requested
-    if (opts.overwrite && opts.name && parentId) {
+    const targetName = opts.name || opts.filename;
+    if (opts.overwrite && targetName && parentId) {
       const existing = await this.query()
         .inFolder(parentId)
-        .nameEquals(opts.name)
+        .nameEquals(targetName)
         .notTrashed()
         .first();
 
@@ -217,10 +226,74 @@ export class DriveKit {
       }
     }
 
+    // Check deduplication (Fast Instant Upload via Cloud Clone)
+    if (opts.deduplicate && typeof opts.source === 'string' && fs.existsSync(opts.source)) {
+      const localMd5 = await calculateFileMd5(opts.source);
+      let existingId: string | undefined;
+
+      if (this.metadataCacheInstance) {
+        const cached = this.metadataCacheInstance.findByMd5(localMd5);
+        if (cached) existingId = cached.id;
+      }
+
+      if (!existingId) {
+        const found = await this.query()
+          .md5(localMd5)
+          .notTrashed()
+          .first();
+        if (found?.id) {
+          existingId = found.id;
+        }
+      }
+
+      if (existingId) {
+        const fileName = targetName || path.basename(opts.source);
+        const raw = await this.getRawClient();
+        const copyRes = await withRetry(async () => {
+          return await raw.files.copy({
+            fileId: existingId,
+            requestBody: {
+              name: fileName,
+              parents: parentId ? [parentId] : undefined,
+              description: opts.description,
+            },
+            fields: 'id, name, mimeType, size, modifiedTime, md5Checksum',
+            supportsAllDrives: true,
+          });
+        });
+
+        const file = copyRes.data as DriveApiFile;
+        if (this.metadataCacheInstance && file.id) {
+          this.metadataCacheInstance.upsertFile({
+            id: file.id,
+            name: file.name || fileName,
+            mimeType: file.mimeType || '',
+            size: file.size ? parseInt(file.size, 10) : undefined,
+            parentId,
+            md5Checksum: localMd5,
+            trashed: false,
+          });
+        }
+        return await this.pluginManager.runAfterUpload(file);
+      }
+    }
+
     const uploaded = await uploader.upload({
       ...opts,
+      name: targetName,
       parent: parentId,
     });
+
+    if (this.metadataCacheInstance && uploaded.id) {
+      this.metadataCacheInstance.upsertFile({
+        id: uploaded.id,
+        name: uploaded.name || targetName || 'untitled',
+        mimeType: uploaded.mimeType || '',
+        size: uploaded.size ? parseInt(uploaded.size, 10) : undefined,
+        parentId,
+        trashed: false,
+      });
+    }
 
     return await this.pluginManager.runAfterUpload(uploaded);
   }
@@ -735,6 +808,259 @@ export class DriveKit {
     const folderId = await this.resolveId(remoteFolderIdOrPath);
     const engine = new SmartSyncEngine(this.driveClient!);
     return await engine.pullFolder(folderId, localDestinationDir, options);
+  }
+
+  // ==========================================
+  // STREAMS & RANGE REQUESTS
+  // ==========================================
+
+  /**
+   * Creates a readable stream for a file, supporting partial range requests
+   */
+  async createReadStream(
+    pathOrId: string,
+    options?: { start?: number; end?: number }
+  ): Promise<NodeJS.ReadableStream> {
+    const fileId = await this.resolveId(pathOrId);
+    const downloader = await this.getDownloader();
+    return await downloader.createReadStream(fileId, options);
+  }
+
+  /**
+   * Creates a writable stream directly into Google Drive
+   */
+  async createWriteStream(
+    remotePath: string,
+    options: Omit<UploadOptions, 'source'> = {}
+  ): Promise<NodeJS.WritableStream> {
+    await this.init();
+    const { PassThrough } = await import('node:stream');
+    const passThrough = new PassThrough();
+
+    const remoteDir = path.dirname(remotePath);
+    const fileName = options.name || options.filename || path.basename(remotePath);
+    const targetParentId = remoteDir === '.' || remoteDir === '/' ? this.rootFolderId : await this.mkdirp(remoteDir);
+    const mimeType = options.mimeType || 'application/octet-stream';
+
+    const raw = this.driveClient!;
+    raw.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [targetParentId],
+        description: options.description,
+      },
+      media: {
+        mimeType,
+        body: passThrough,
+      },
+      fields: 'id, name, mimeType, size, md5Checksum',
+      supportsAllDrives: true,
+    }).then((res) => {
+      if (res.data.id && this.metadataCacheInstance) {
+        this.metadataCacheInstance.upsertFile({
+          id: res.data.id,
+          name: fileName,
+          mimeType,
+          parentId: targetParentId,
+          path: remotePath,
+          trashed: false,
+        });
+      }
+    }).catch((err) => {
+      passThrough.destroy(err);
+    });
+
+    return passThrough;
+  }
+
+  // ==========================================
+  // METADATA CACHE OPERATIONS
+  // ==========================================
+
+  /**
+   * Returns the active persistent metadata cache instance (SQLite/Memory)
+   */
+  async getMetadataCache(): Promise<IMetadataCache | null> {
+    await this.init();
+    return this.metadataCacheInstance;
+  }
+
+  /**
+   * Returns cache statistics (total files, folders, size, last sync)
+   */
+  async getCacheStats(): Promise<CacheStats | null> {
+    await this.init();
+    return this.metadataCacheInstance ? this.metadataCacheInstance.getStats() : null;
+  }
+
+  /**
+   * Clears the path and metadata cache
+   */
+  async clearCache(): Promise<void> {
+    await this.init();
+    if (this.pathResolverInstance) {
+      this.pathResolverInstance.clearCache();
+    }
+  }
+
+  /**
+   * Crawls and indexes Google Drive metadata into the local SQLite database for instant 0ms lookups
+   */
+  async syncCache(options?: {
+    onProgress?: (scanned: number) => void;
+  }): Promise<CacheStats> {
+    await this.init();
+    if (!this.metadataCacheInstance) {
+      throw new Error('Persistent cache is disabled on this DriveKit instance');
+    }
+
+    const client = this.driveClient!;
+    let pageToken: string | undefined = undefined;
+    let totalScanned = 0;
+
+    do {
+      const res = await withRetry(async () => {
+        return await client.files.list({
+          pageSize: 1000,
+          pageToken,
+          fields: 'nextPageToken, files(id, name, mimeType, size, parents, md5Checksum, trashed, modifiedTime)',
+          spaces: 'drive',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+          q: 'trashed = false',
+        });
+      });
+
+      const files = res.data.files || [];
+      const entries = files.map((f) => ({
+        id: f.id!,
+        name: f.name || 'untitled',
+        mimeType: f.mimeType || '',
+        size: f.size ? parseInt(f.size, 10) : undefined,
+        parentId: f.parents?.[0],
+        md5Checksum: f.md5Checksum || undefined,
+        trashed: !!f.trashed,
+        modifiedTime: f.modifiedTime || undefined,
+      }));
+
+      this.metadataCacheInstance.upsertFiles(entries);
+      totalScanned += entries.length;
+      options?.onProgress?.(totalScanned);
+
+      pageToken = res.data.nextPageToken || undefined;
+    } while (pageToken);
+
+    this.metadataCacheInstance.setMeta('last_sync_timestamp', new Date().toISOString());
+    return this.metadataCacheInstance.getStats();
+  }
+
+  // ==========================================
+  // SHARED DRIVES & ENTERPRISE PERMISSIONS
+  // ==========================================
+
+  /**
+   * Lists all Google Workspace Shared Drives accessible by current user or service account
+   */
+  async listSharedDrives(options: { pageSize?: number } = {}): Promise<{ id: string; name: string }[]> {
+    await this.init();
+    const raw = await this.getRawClient();
+    const res = await withRetry(async () => {
+      return await raw.drives.list({
+        pageSize: options.pageSize || 100,
+        fields: 'drives(id, name)',
+      });
+    });
+    return (res.data.drives || []).map((d) => ({ id: d.id!, name: d.name! }));
+  }
+
+  /**
+   * Creates a scoped DriveKit client locked to a specific Shared Drive
+   */
+  sharedDrive(driveId: string): DriveKit {
+    return new DriveKit({
+      ...this.options,
+      rootFolderId: driveId,
+    });
+  }
+
+  /**
+   * Grants access to a specific email with custom role and notification
+   */
+  async grantAccess(
+    pathOrId: string,
+    options: {
+      email: string;
+      role?: 'reader' | 'commenter' | 'writer';
+      notify?: boolean;
+      message?: string;
+    }
+  ): Promise<DriveApiPermission> {
+    const fileId = await this.resolveId(pathOrId);
+    const raw = await this.getRawClient();
+    const res = await withRetry(async () => {
+      return await raw.permissions.create({
+        fileId,
+        requestBody: {
+          type: 'user',
+          role: options.role || 'reader',
+          emailAddress: options.email,
+        },
+        sendNotificationEmail: options.notify ?? true,
+        emailMessage: options.message,
+        fields: 'id, type, role, emailAddress, displayName',
+        supportsAllDrives: true,
+      });
+    });
+    return res.data;
+  }
+
+  /**
+   * Revokes access for a specific permission ID or email address
+   */
+  async revokeAccess(pathOrId: string, permissionIdOrEmail: string): Promise<void> {
+    const fileId = await this.resolveId(pathOrId);
+    const raw = await this.getRawClient();
+    let targetId = permissionIdOrEmail;
+
+    if (permissionIdOrEmail.includes('@')) {
+      const listRes = await this.listPermissions(fileId);
+      const found = listRes.find((p) => p.emailAddress?.toLowerCase() === permissionIdOrEmail.toLowerCase());
+      if (found && found.id) {
+        targetId = found.id;
+      }
+    }
+
+    await withRetry(async () => {
+      return await raw.permissions.delete({
+        fileId,
+        permissionId: targetId,
+        supportsAllDrives: true,
+      });
+    });
+  }
+
+  /**
+   * Lists all active permissions on a file or folder
+   */
+  async listPermissions(pathOrId: string): Promise<DriveApiPermission[]> {
+    const fileId = await this.resolveId(pathOrId);
+    const raw = await this.getRawClient();
+    const res = await withRetry(async () => {
+      return await raw.permissions.list({
+        fileId,
+        fields: 'permissions(id, type, role, emailAddress, displayName)',
+        supportsAllDrives: true,
+      });
+    });
+    return res.data.permissions || [];
+  }
+
+  /**
+   * Starts an embedded WebDAV server to mount DriveKit directly in macOS Finder or Windows Explorer
+   */
+  async serveWebDAV(options?: { port?: number; host?: string }) {
+    const { startWebDAVServer } = await import('../server/webdav.js');
+    return await startWebDAVServer(this, options);
   }
 
   /**

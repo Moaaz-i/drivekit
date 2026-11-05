@@ -48,6 +48,10 @@ export interface DriveKitOptions {
   enablePathCache?: boolean;
   /** Cache TTL in milliseconds (default: 5 minutes) */
   pathCacheTTL?: number;
+  /** Enable persistent SQLite metadata cache for 0ms path resolution across sessions (default: true) */
+  enablePersistentCache?: boolean;
+  /** Custom path to the SQLite cache database file (default: ~/.drivekit/cache.db) */
+  cacheDatabasePath?: string;
   /** Number of retry attempts for 429/5xx errors (default: 5) */
   maxRetries?: number;
   /** Base delay for exponential backoff in ms (default: 1000) */
@@ -107,6 +111,10 @@ export interface UploadOptions {
   onProgress?: (progress: UploadProgress) => void;
   /** Whether to overwrite file with same name in destination */
   overwrite?: boolean;
+  /** Whether to enable instant upload deduplication by file MD5 hash */
+  deduplicate?: boolean;
+  /** Alias for target file name */
+  filename?: string;
   /** Custom properties / metadata */
   properties?: Record<string, string>;
   appProperties?: Record<string, string>;

@@ -42,6 +42,8 @@ export * from './core/storage-cleaner.js';
 export * from './core/smart-sync.js';
 export * from './core/resource-refs.js';
 export * from './core/plugins.js';
+export * from './core/cache.js';
+export * from './server/webdav.js';
 export * from './cli/terminal-ui.js';
 export * from './auth/browser-login.js';
 export * from './utils/format.js';

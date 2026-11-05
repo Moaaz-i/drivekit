@@ -126,5 +126,28 @@ export class Downloader {
       size: totalBytes,
     };
   }
+
+  /**
+   * Returns a raw ReadableStream for the file, supporting HTTP Range requests for partial content / streaming.
+   */
+  async createReadStream(
+    fileId: string,
+    options?: { start?: number; end?: number }
+  ): Promise<NodeJS.ReadableStream> {
+    const headers: Record<string, string> = {};
+    if (options?.start !== undefined || options?.end !== undefined) {
+      const start = options.start ?? 0;
+      const end = options.end !== undefined ? options.end : '';
+      headers['Range'] = `bytes=${start}-${end}`;
+    }
+
+    const res = await withRetry(async () => {
+      return await this.drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
+        { responseType: 'stream', headers }
+      );
+    });
+    return res.data as NodeJS.ReadableStream;
+  }
 }
 

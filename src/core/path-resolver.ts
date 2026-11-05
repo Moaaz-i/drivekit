@@ -2,6 +2,7 @@ import type { drive_v3 } from '@googleapis/drive';
 import { GOOGLE_WORKSPACE_MIME_TYPES } from '../utils/mime.js';
 import { DriveNotFoundError } from '../errors.js';
 import { withRetry } from '../utils/retry.js';
+import type { IMetadataCache } from './cache.js';
 
 interface CacheEntry {
   id: string;
@@ -19,16 +20,18 @@ export class PathResolver {
   private cache = new Map<string, CacheEntry>();
   private cacheTTL: number;
   private enableCache: boolean;
+  private metadataCache?: IMetadataCache;
 
   constructor(
     drive: drive_v3.Drive,
     rootFolderId = 'root',
-    options?: { enableCache?: boolean; cacheTTL?: number }
+    options?: { enableCache?: boolean; cacheTTL?: number; metadataCache?: IMetadataCache }
   ) {
     this.drive = drive;
     this.rootFolderId = rootFolderId;
     this.enableCache = options?.enableCache ?? true;
     this.cacheTTL = options?.cacheTTL ?? 5 * 60 * 1000; // 5 minutes default
+    this.metadataCache = options?.metadataCache;
   }
 
   /**
@@ -57,14 +60,24 @@ export class PathResolver {
    */
   public clearCache(): void {
     this.cache.clear();
+    if (this.metadataCache) {
+      this.metadataCache.clear();
+    }
   }
 
   /**
    * Invalidate a single path from cache
    */
   public invalidatePath(path: string): void {
-    const key = this.getCacheKey(path);
+    const norm = this.normalizePath(path);
+    const key = this.getCacheKey(norm);
     this.cache.delete(key);
+    if (this.metadataCache) {
+      const item = this.metadataCache.getByPath(norm);
+      if (item) {
+        this.metadataCache.deleteFile(item.id);
+      }
+    }
   }
 
   /**
@@ -84,6 +97,18 @@ export class PathResolver {
         isFolder: true,
         mimeType: GOOGLE_WORKSPACE_MIME_TYPES.FOLDER,
       };
+    }
+
+    if (this.metadataCache) {
+      const persistentCached = this.metadataCache.getByPath(norm);
+      if (persistentCached) {
+        return {
+          id: persistentCached.id,
+          name: persistentCached.name,
+          isFolder: persistentCached.mimeType === GOOGLE_WORKSPACE_MIME_TYPES.FOLDER,
+          mimeType: persistentCached.mimeType,
+        };
+      }
     }
 
     if (this.enableCache) {
@@ -107,7 +132,23 @@ export class PathResolver {
       const isLast = i === segments.length - 1;
       currentPath += `/${segment}`;
 
-      // Check cache for intermediate path
+      // Check persistent & in-memory cache for intermediate path
+      if (this.metadataCache) {
+        const pCached = this.metadataCache.getByPath(currentPath);
+        if (pCached) {
+          currentParentId = pCached.id;
+          if (isLast) {
+            return {
+              id: pCached.id,
+              name: pCached.name,
+              isFolder: pCached.mimeType === GOOGLE_WORKSPACE_MIME_TYPES.FOLDER,
+              mimeType: pCached.mimeType,
+            };
+          }
+          continue;
+        }
+      }
+
       if (this.enableCache) {
         const cached = this.cache.get(this.getCacheKey(currentPath));
         if (cached && cached.expiresAt > Date.now()) {
@@ -160,6 +201,17 @@ export class PathResolver {
       if (file && file.id) {
         currentParentId = file.id;
 
+        if (this.metadataCache) {
+          this.metadataCache.upsertFile({
+            id: file.id,
+            name: file.name || segment,
+            mimeType: file.mimeType || '',
+            parentId: currentParentId,
+            path: currentPath,
+            trashed: false,
+          });
+        }
+
         if (this.enableCache) {
           this.cache.set(this.getCacheKey(currentPath), {
             id: file.id,
@@ -199,6 +251,17 @@ export class PathResolver {
           }
 
           currentParentId = newFolder.id;
+
+          if (this.metadataCache) {
+            this.metadataCache.upsertFile({
+              id: newFolder.id,
+              name: segment,
+              mimeType: GOOGLE_WORKSPACE_MIME_TYPES.FOLDER,
+              parentId: currentParentId,
+              path: currentPath,
+              trashed: false,
+            });
+          }
 
           if (this.enableCache) {
             this.cache.set(this.getCacheKey(currentPath), {
