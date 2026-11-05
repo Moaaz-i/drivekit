@@ -40,6 +40,23 @@ const res = await drive.download('/Documents/Report.docx', {
 
 ---
 
+## ⚡ Instant Cloud Deduplication
+
+By setting `deduplicate: true`, DriveKit hashes your local file and checks the SQLite cache and Google Drive cloud:
+
+- If an identical file exists, DriveKit performs an **instant cloud-side copy** in **~200ms** with 0 bytes transferred over the network!
+- Ideal for redundant deployments and large backup files.
+
+```typescript
+const file = await drive.upload({
+  source: './50GB-backup.iso',
+  parent: '/Backups/Archive',
+  deduplicate: true, // Instant Cloud Upload
+});
+```
+
+---
+
 ## 📄 Read Text & JSON Directly
 
 ```typescript

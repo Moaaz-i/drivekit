@@ -40,3 +40,58 @@ await drive.share(fileId, {
 const { previewLink, directDownloadLink } = await drive.getShareableLink('/Documents/report.pdf');
 ```
 
+---
+
+## 🏢 إدارة الصلاحيات بدقة (Fluent Permissions)
+
+يمكنك إدارة الصلاحيات بالبريد مباشرة عبر المورد `drive.file()` أو `drive.folder()`:
+
+### منح صلاحية لبريد محدد (`grantAccess`):
+```typescript
+const file = drive.file('/Contracts/Deal.pdf');
+
+await file.grantAccess({
+  email: 'partner@company.com',
+  role: 'commenter', // 'reader' | 'commenter' | 'writer'
+  notify: true,
+  message: 'مرحباً، إليك مسودة العقد للمراجعة وإبداء الملاحظات.'
+});
+```
+
+### إلغاء الصلاحية بالبريد أو المعرّف (`revokeAccess`):
+```typescript
+await file.revokeAccess('partner@company.com');
+```
+
+### استعراض كافة الصلاحيات الممنوحة (`listPermissions`):
+```typescript
+const permissions = await file.listPermissions();
+
+for (const p of permissions) {
+  console.log(`- ${p.displayName || p.emailAddress}: [${p.role}] (ID: ${p.id})`);
+}
+```
+
+---
+
+## 🏢 دعم الأقراص المشتركة للشركات (Google Workspace Shared Drives)
+
+### استعراض الأقراص المشتركة المتاحة (`listSharedDrives`):
+```typescript
+const sharedDrives = await drive.listSharedDrives();
+
+for (const sd of sharedDrives) {
+  console.log(`📁 ${sd.name} - ID: ${sd.id}`);
+}
+```
+
+### حصر وتوجيه العمليات لقرص مشترك محدد (`sharedDrive`):
+```typescript
+// إنشاء عميل مخصص محصور في Shared Drive معين
+const marketingDrive = drive.sharedDrive('SHARED_DRIVE_ID');
+
+// كافة العمليات هنا ستتم داخل هذا القرص المشترك حصراً:
+const files = await marketingDrive.ls('/');
+await marketingDrive.upload({ source: './banner.png', parent: '/Campaigns/2026' });
+```
+

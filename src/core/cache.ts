@@ -363,3 +363,4 @@ export class MemoryMetadataCache implements IMetadataCache {
     this.clear();
   }
 }
+

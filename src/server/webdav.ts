@@ -260,3 +260,4 @@ function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifi
     </D:propstat>
   </D:response>`;
 }
+

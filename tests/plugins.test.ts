@@ -41,3 +41,4 @@ describe('Official Plugins', () => {
     expect(res.id).toBe('f1');
   });
 });
+

@@ -34,6 +34,26 @@ function createDrive(options?: DriveKitOptions): Promise<DriveKit>
 - `rename(fileIdOrPath: string, newName: string): Promise<DriveApiFile>`: إعادة تسمية الملف.
 - `copy(fileIdOrPath: string, options?: { name?: string, parent?: string }): Promise<DriveApiFile>`: نسخ الملف.
 
+### التدفق والطلبات الجزئية (Streams)
+- `createReadStream(pathOrId: string, options?: { start?: number, end?: number }): Promise<NodeJS.ReadableStream>`: تدفق قراءة مع دعم الـ Range Requests.
+- `createWriteStream(remotePath: string, options?: UploadOptions): Promise<NodeJS.WritableStream>`: تدفق كتابة ورفع مباشر دون حفظ على القرص.
+
+### الكاش المحلي الدائم (SQLite Cache)
+- `getMetadataCache(): Promise<IMetadataCache | null>`: جلب محرك الكاش النشط.
+- `getCacheStats(): Promise<CacheStats | null>`: إحصائيات قاعدة بيانات SQLite المحلية.
+- `syncCache(options?: { onProgress?: (scanned: number) => void }): Promise<CacheStats>`: مسح وفهرسة محتويات الحساب كاملاً.
+- `clearCache(): Promise<void>`: مسح الكاش المحلي.
+
+### الأقراص المشتركة والأذونات المؤسسية
+- `listSharedDrives(options?: { pageSize?: number }): Promise<{ id: string, name: string }[]>`: جلب الأقراص المشتركة (Shared Drives).
+- `sharedDrive(driveId: string): DriveKit`: إنشاء عميل مخصص محصور في Shared Drive معين.
+- `grantAccess(pathOrId: string, options: { email: string, role?: string, notify?: boolean, message?: string })`: منح صلاحية.
+- `revokeAccess(pathOrId: string, permissionIdOrEmail: string): Promise<void>`: إلغاء صلاحية.
+- `listPermissions(pathOrId: string): Promise<DriveApiPermission[]>`: استعراض صلاحيات الملف أو المجلد.
+
+### خادم WebDAV المدمج
+- `serveWebDAV(options?: { port?: number, host?: string })`: تشغيل خادم WebDAV لربط Drive كنظام ملفات محلي.
+
 ### المشاركة
 - `share(fileIdOrPath: string, options: ShareOptions): Promise<DriveApiPermission>`: إضافة صلاحية.
 - `sharePublic(fileIdOrPath: string, role?: 'reader' | 'commenter' | 'writer')`: إتاحة الملف للعامة والحصول على روابط مباشرة.
@@ -44,7 +64,18 @@ function createDrive(options?: DriveKitOptions): Promise<DriveKit>
 
 ### المزامنة والمساحة
 - `syncFolder(localDir: string, remotePathOrId: string, options?: SyncOptions): Promise<SyncResult>`: مزامنة تفرعية.
+- `pull(remoteFolderIdOrPath: string, localDestinationDir: string, options?)`: تنزيل مجلد كامل من السحابة.
 - `getStorageQuota()`: فحص استهلاك المساحة والحدود.
+- `findLargestFiles(options?)`: كشف أكبر الملفات المستهلكة للمساحة.
+- `findDuplicates(options?)`: كشف الملفات المكررة بالـ MD5.
+- `emptyTrash()`: تفريغ سلة المهملات.
+
+---
+
+## 🧩 الإضافات المدمجة (Plugins)
+
+- `createWebhookPlugin(options: { url: string, events?: ('upload' | 'download')[], headers?: Record<string, string> })`
+- `createAutoNamePlugin(options: { prefix?: string, suffix?: string, appendTimestamp?: boolean })`
 
 ---
 

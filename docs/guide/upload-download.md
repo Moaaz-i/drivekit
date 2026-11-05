@@ -65,6 +65,23 @@ console.log('تم الحفظ في:', res.filePath);
 
 ---
 
+## ⚡ الرفع الفوري عبر تفادي التكرار السحابي (Instant Cloud Deduplication)
+
+عند تفعيل خيار `deduplicate: true`، تقوم DriveKit بحساب بصمة الـ MD5 للملف المحلي والتحقق فورياً في قاعدة بيانات الكاش وسحابة Google Drive:
+
+- إذا كان الملف موجوداً بالفعل في حسابك، يتم عمل **استنساخ سحابي فوري (Cloud Clone)** خلال **~200ms** دون إرسال بايت واحد عبر شبكة الإنترنت!
+- هذا يوفر استهلاك الإنترنت والوقت بشكل مذهل عند تكرار رفع ملفات الأرشيف والوسائط الضخمة.
+
+```typescript
+const file = await drive.upload({
+  source: './50GB-backup.iso',
+  parent: '/Backups/Archive',
+  deduplicate: true, // تفعيل الرفع اللحظي السحابي
+});
+```
+
+---
+
 ## 📄 قراءة النصوص والـ JSON مباشرة
 
 ```typescript
