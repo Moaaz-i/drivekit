@@ -1,14 +1,14 @@
-# 🌊 تدفق البيانات والطلبات الجزئية (Streams & Range Requests)
+# 🌊 Streams & Range Requests
 
-تدعم **DriveKit** تدفق البيانات (Streams) الحقيقي المتوافق بنسبة 100% مع بروتوكولات Node.js Streams القياسية، مما يسمح بنقل ومعالجة ملفات بحجم عشرات الجيجابايتات دون حجز مساحات تخزين مؤقتة في الذاكرة أو على القرص الصلب.
+**DriveKit** provides first-class support for native Node.js Streams, allowing you to stream gigabytes of data seamlessly with constant memory consumption and zero temporary disk overhead.
 
 ---
 
-## 📥 القراءة بالتدفق والطلبات الجزئية (`createReadStream`)
+## 📥 Streaming Reads & Partial Content (`createReadStream`)
 
-يتيح لك `createReadStream` استرجاع تدفق قراءة `ReadableStream` لملف موجود على Google Drive، مع دعم طلبات المدى (HTTP Range Requests - RFC 7233) لقراءة أجزاء وبايتات محددة من الملف:
+The `createReadStream` method returns a standard `NodeJS.ReadableStream` with full support for HTTP Range requests (RFC 7233) to fetch specific byte slices:
 
-### 1. قراءة الملف بالكامل كـ Stream
+### 1. Pipe Entire File
 ```typescript
 import fs from 'node:fs';
 
@@ -18,21 +18,21 @@ const writeStream = fs.createWriteStream('./local-copy.sql');
 readStream.pipe(writeStream);
 ```
 
-### 2. قراءة مقاطع محددة من الملف (Audio/Video Streaming)
-مثالي لتشغيل الفيديو والصوت أو القراءة الجزئية:
+### 2. Audio/Video Streaming with Range Requests
+Ideal for video/audio seeking and partial HTTP 206 responses:
 
 ```typescript
-// قراءة أول 1 ميجابايت فقط من الملف
+// Fetch the first 1 MB slice
 const chunkStream = await drive.createReadStream('/Videos/conference.mp4', {
   start: 0,
   end: 1024 * 1024 - 1
 });
 
-// تمرير التدفق مباشرة في استجابة HTTP 206 لمشغل الفيديو في المتصفح
+// Pipe directly to browser video player HTTP response
 chunkStream.pipe(response);
 ```
 
-### 3. استخدام الواجهة الموجهة للموارد (Fluent API)
+### 3. Fluent Resource API
 ```typescript
 const videoStream = await drive.file('/Videos/sample.mp4').createReadStream({
   start: 500000,
@@ -42,11 +42,11 @@ const videoStream = await drive.file('/Videos/sample.mp4').createReadStream({
 
 ---
 
-## 📤 الكتابة المباشرة بالتدفق (`createWriteStream`)
+## 📤 Direct Streaming Writes (`createWriteStream`)
 
-تتيح لك دالة `createWriteStream` رفع تدفق بيانات مباشر من أي مصدر (تفريغ قاعدة بيانات، ملفات مضغوطة على الطاير، أو استجابة API أخرى) إلى Google Drive مباشرة دون الحاجة لإنشاء ملف مؤقت على جهازك:
+The `createWriteStream` method creates a writable `PassThrough` stream, enabling you to stream data directly into Google Drive from any source (database dumps, live sensor feeds, or network pipes) without writing to disk:
 
-### 1. الرفع عبر الـ Pipe
+### 1. Pipe to Drive and Await Result (`.done`)
 ```typescript
 import fs from 'node:fs';
 
@@ -56,9 +56,13 @@ const driveWriteStream = await drive.createWriteStream('/Exports/2026/export.csv
 });
 
 localReadStream.pipe(driveWriteStream);
+
+// Await upload completion and retrieve created Drive file metadata:
+const uploadedFile = await driveWriteStream.done;
+console.log(`Upload complete! File ID: ${uploadedFile.id}, Size: ${uploadedFile.size}`);
 ```
 
-### 2. الرفع المباشر عبر المجلد (Fluent Folder API)
+### 2. Stream into a Folder (Fluent Folder Ref)
 ```typescript
 const folder = drive.folder('/Backups/Live');
 const uploadStream = await folder.createWriteStream('live-backup.dump');

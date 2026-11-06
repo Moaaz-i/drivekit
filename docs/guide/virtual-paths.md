@@ -1,26 +1,19 @@
-# 📂 نظام المسارات الافتراضي (Virtual Paths)
+# 📂 Virtual Paths & Filesystem
 
-في Google Drive، لا يوجد مفهوم المسارات الشجري الحقيقي (`/Folder/SubFolder/file.txt`). الملفات عبارة عن كائنات تمتلك معرّف عشوائي (`fileId`) وقائمة بالمعرّفات الأبوية (`parents`).
-
-**DriveKit تمنحك تجربة نظام ملفات حقيقي متكامل!**
+In Google Drive, directories do not have physical paths; they are nodes with parents. DriveKit bridges this gap by providing full POSIX-like virtual path support.
 
 ---
 
-## 🌟 إنشاء المجلدات المتسلسلة (drive.mkdirp)
-
-تمكّنك دالة `drive.mkdirp` من إنشاء مسار متسلسل كامل بلمسة واحدة، شبيهة بأمر الطرفية `mkdir -p`:
+## 🌟 Recursive Directory Creation (drive.mkdirp)
 
 ```typescript
-// سينشئ المجلدات /Backups ثم /2026 ثم /October إن لم تكن موجودة
 const folderId = await drive.mkdirp('/Backups/2026/October');
-console.log('معرّف المجلد الأخير:', folderId);
+console.log('Folder ID:', folderId);
 ```
 
 ---
 
-## 🔍 حل المسارات الافتراضية (drive.resolvePath)
-
-يمكنك استخراج معرّف أي مجلد أو ملف عبر مساره المباشر:
+## 🔍 Path Resolution (drive.resolvePath)
 
 ```typescript
 const info = await drive.resolvePath('/Documents/Projects/AppConfig.json');
@@ -33,28 +26,13 @@ console.log(info.mimeType); // 'application/json'
 
 ---
 
-## 📁 استعراض الملفات (drive.ls)
-
-تعرض دالة `drive.ls()` محتويات المجلد سواء عبر تمرير مساره أو معرّفه:
+## 📁 Listing Directory Contents (drive.ls)
 
 ```typescript
-// استعراض محتويات المجلد الجذري والمجلدات المشتركة
+// Lists root items and shared folders
 const rootItems = await drive.ls('/');
 
-// استعراض مجلد فرعي
+// Lists contents of subpath
 const projectFiles = await drive.ls('/Projects/2026');
-
-for (const item of projectFiles) {
-  console.log(`- ${item.name} (${item.mimeType}) [${item.id}]`);
-}
 ```
-
----
-
-## ⚡ التخزين المؤقت الذكي (Path Cache)
-
-لكي لا تستهلك كوتا الاستعلامات في كل مرة ترفع فيها ملفاً لنفس المجلد، تحتفظ DriveKit بكاش داخلي للمسارات التي تم حلها:
-- يتم تفعيله تلقائياً (`enablePathCache: true`).
-- مدة الصلاحية الافتراضية: **5 دقائق** (`pathCacheTTL: 300000`).
-- يتم تحديثه وتفريغه تلقائياً عند النقل (`move`) أو الحذف (`delete`).
 

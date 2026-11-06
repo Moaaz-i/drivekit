@@ -123,6 +123,14 @@ export interface UploadOptions {
 }
 
 /**
+ * Writable stream for direct uploads into Google Drive with completion promise
+ */
+export interface DriveWriteStream extends NodeJS.WritableStream {
+  /** Resolves with the uploaded file metadata upon completion, or rejects on upload failure */
+  done: Promise<DriveApiFile>;
+}
+
+/**
  * File download parameters
  */
 export interface DownloadOptions {
@@ -134,6 +142,14 @@ export interface DownloadOptions {
   exportMimeType?: string;
   /** Optional AbortSignal for instant operation cancellation */
   signal?: AbortSignal;
+}
+
+/**
+ * Writable stream for direct uploads into Google Drive with completion promise
+ */
+export interface DriveWriteStream extends NodeJS.WritableStream {
+  /** Resolves with the uploaded file metadata upon completion, or rejects on upload failure */
+  done: Promise<DriveApiFile>;
 }
 
 /**

@@ -7,11 +7,27 @@ import type { DriveApiFile } from '../types.js';
 export interface WebDAVServerOptions {
   port?: number;
   host?: string;
+  auth?: {
+    username?: string;
+    password?: string;
+  };
 }
 
 /**
- * Creates and starts a lightweight zero-dependency WebDAV server for DriveKit.
- * Allows mounting Google Drive directly in macOS Finder, Windows Explorer, or Linux.
+ * Escapes unsafe characters for valid XML output
+ */
+export function escapeXml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Creates and starts a production-grade, zero-dependency WebDAV server for DriveKit.
+ * Supports HTTP Basic Authentication, Streaming PUT (Zero-Buffer), Range requests, MOVE, COPY, and MKCOL.
  */
 export async function startWebDAVServer(
   drive: DriveKit,
@@ -24,17 +40,42 @@ export async function startWebDAVServer(
 
   const server = http.createServer(async (req, res) => {
     try {
+      // 1. Basic Authentication Verification (P0 Security)
+      if (options.auth?.username && options.auth?.password) {
+        const authHeader = req.headers['authorization'];
+        if (!authHeader || !authHeader.startsWith('Basic ')) {
+          res.writeHead(401, {
+            'WWW-Authenticate': 'Basic realm="DriveKit WebDAV"',
+            'Content-Type': 'text/plain',
+          });
+          res.end('Authentication required');
+          return;
+        }
+
+        const credentials = Buffer.from(authHeader.replace('Basic ', ''), 'base64').toString('utf8');
+        const [user, pass] = credentials.split(':');
+        if (user !== options.auth.username || pass !== options.auth.password) {
+          res.writeHead(401, {
+            'WWW-Authenticate': 'Basic realm="DriveKit WebDAV"',
+            'Content-Type': 'text/plain',
+          });
+          res.end('Invalid credentials');
+          return;
+        }
+      }
+
       const parsedUrl = url.parse(req.url || '/', true);
       const decodedPath = decodeURIComponent(parsedUrl.pathname || '/');
       const virtualPath = decodedPath === '' ? '/' : decodedPath;
 
-      // Handle WebDAV HTTP Verbs
+      // 2. Handle WebDAV HTTP Verbs
       switch (req.method) {
         case 'OPTIONS': {
           res.writeHead(200, {
             DAV: '1, 2',
             Allow: 'OPTIONS, GET, HEAD, POST, PUT, DELETE, MKCOL, MOVE, COPY, PROPFIND',
             'MS-Author-Via': 'DAV',
+            'Accept-Ranges': 'bytes',
           });
           res.end();
           return;
@@ -54,7 +95,7 @@ export async function startWebDAVServer(
         case 'HEAD': {
           if (virtualPath === '/' || virtualPath === '') {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end('<h1>DriveKit WebDAV Server Running</h1><p>Connect via Finder or WebDAV client.</p>');
+            res.end('<h1>DriveKit WebDAV Server Running</h1><p>Connect via Finder, File Explorer, or WebDAV client.</p>');
             return;
           }
 
@@ -66,16 +107,49 @@ export async function startWebDAVServer(
               return;
             }
 
-            const stream = await drive.createReadStream(virtualPath);
-            res.writeHead(200, {
-              'Content-Type': file.mimeType || 'application/octet-stream',
-              'Content-Length': file.size || undefined,
-            });
+            const fileSize = file.size ? parseInt(file.size, 10) : undefined;
+            const rangeHeader = req.headers['range'];
 
-            if (req.method === 'HEAD') {
-              res.end();
+            // Handle HTTP 206 Partial Content if Range header is present
+            if (rangeHeader && rangeHeader.startsWith('bytes=') && fileSize !== undefined) {
+              const parts = rangeHeader.replace('bytes=', '').split('-');
+              const start = parseInt(parts[0], 10);
+              const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+              if (isNaN(start) || start >= fileSize || (end !== undefined && end >= fileSize)) {
+                res.writeHead(416, { 'Content-Range': `bytes */${fileSize}` });
+                res.end();
+                return;
+              }
+
+              const stream = await drive.createReadStream(virtualPath, { start, end });
+              const chunkLength = end - start + 1;
+
+              res.writeHead(206, {
+                'Content-Type': file.mimeType || 'application/octet-stream',
+                'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                'Content-Length': chunkLength,
+                'Accept-Ranges': 'bytes',
+              });
+
+              if (req.method === 'HEAD') {
+                res.end();
+              } else {
+                stream.pipe(res);
+              }
             } else {
-              stream.pipe(res);
+              const stream = await drive.createReadStream(virtualPath);
+              res.writeHead(200, {
+                'Content-Type': file.mimeType || 'application/octet-stream',
+                'Content-Length': file.size || undefined,
+                'Accept-Ranges': 'bytes',
+              });
+
+              if (req.method === 'HEAD') {
+                res.end();
+              } else {
+                stream.pipe(res);
+              }
             }
           } catch (e: any) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -85,29 +159,34 @@ export async function startWebDAVServer(
         }
 
         case 'PUT': {
-          // Upload file
+          // Zero-Buffer Streaming Upload
           const remoteDir = path.dirname(virtualPath);
-          const fileName = path.basename(virtualPath);
           await drive.mkdirp(remoteDir);
 
-          const chunks: Buffer[] = [];
-          req.on('data', (chunk) => chunks.push(chunk));
-          req.on('end', async () => {
-            try {
-              const buffer = Buffer.concat(chunks);
-              await drive.upload({
-                source: buffer,
-                filename: fileName,
-                parent: remoteDir,
-                overwrite: true,
-              });
-              res.writeHead(201, { 'Content-Type': 'text/plain' });
-              res.end('Created');
-            } catch (err: any) {
-              res.writeHead(500, { 'Content-Type': 'text/plain' });
-              res.end(err.message || 'Upload failed');
+          let existed = false;
+          try {
+            const existingFile = await drive.getFile(virtualPath);
+            if (existingFile && existingFile.id) {
+              existed = true;
             }
-          });
+          } catch {
+            existed = false;
+          }
+
+          try {
+            const uploadStream = await drive.createWriteStream(virtualPath, {
+              overwrite: true,
+            });
+
+            req.pipe(uploadStream);
+            await uploadStream.done;
+
+            res.writeHead(existed ? 204 : 201, { 'Content-Type': 'text/plain' });
+            res.end(existed ? '' : 'Created');
+          } catch (err: any) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end(err.message || 'Upload failed');
+          }
           return;
         }
 
@@ -143,18 +222,60 @@ export async function startWebDAVServer(
             res.end('Destination header missing');
             return;
           }
-          const destUrl = url.parse(destination);
-          const destPath = decodeURIComponent(destUrl.pathname || '');
-          const newName = path.basename(destPath);
-          const newParent = path.dirname(destPath);
 
           try {
-            await drive.move(virtualPath, newParent);
+            const file = await drive.getFile(virtualPath);
+            if (!file?.id) {
+              res.writeHead(404, { 'Content-Type': 'text/plain' });
+              res.end('Source file not found');
+              return;
+            }
+            const destUrl = url.parse(destination);
+            const destPath = decodeURIComponent(destUrl.pathname || '');
+            const newName = path.basename(destPath);
+            const newParentDir = path.dirname(destPath);
+            const newParentFolderId = await drive.mkdirp(newParentDir);
+
+            const currentParentDir = path.dirname(virtualPath);
+            if (newParentDir !== currentParentDir) {
+              await drive.move(file.id, newParentFolderId);
+            }
             if (newName !== path.basename(virtualPath)) {
-              await drive.rename(destPath, newName);
+              await drive.rename(file.id, newName);
             }
             res.writeHead(201);
             res.end('Moved');
+          } catch (err: any) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end(err.message);
+          }
+          return;
+        }
+
+        case 'COPY': {
+          const destination = req.headers['destination'];
+          if (!destination || typeof destination !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'text/plain' });
+            res.end('Destination header missing');
+            return;
+          }
+
+          try {
+            const file = await drive.getFile(virtualPath);
+            if (!file?.id) {
+              res.writeHead(404, { 'Content-Type': 'text/plain' });
+              res.end('Source file not found');
+              return;
+            }
+            const destUrl = url.parse(destination);
+            const destPath = decodeURIComponent(destUrl.pathname || '');
+            const newName = path.basename(destPath);
+            const newParentDir = path.dirname(destPath);
+            const newParentFolderId = await drive.mkdirp(newParentDir);
+
+            await drive.copy(file.id, { parent: newParentFolderId, name: newName });
+            res.writeHead(201);
+            res.end('Copied');
           } catch (err: any) {
             res.writeHead(500, { 'Content-Type': 'text/plain' });
             res.end(err.message);
@@ -243,6 +364,7 @@ ${responses.join('\n')}
 
 function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifiedTime: string): string {
   const encodedHref = encodeURI(href);
+  const displayName = escapeXml(path.basename(href) || 'root');
   const resourceType = isDir ? '<D:collection/>' : '';
   const dateFormatted = new Date(modifiedTime).toUTCString();
 
@@ -250,7 +372,7 @@ function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifi
     <D:href>${encodedHref}</D:href>
     <D:propstat>
       <D:prop>
-        <D:displayname>${path.basename(href) || 'root'}</D:displayname>
+        <D:displayname>${displayName}</D:displayname>
         <D:resourcetype>${resourceType}</D:resourcetype>
         <D:getcontentlength>${isDir ? '0' : size}</D:getcontentlength>
         <D:getlastmodified>${dateFormatted}</D:getlastmodified>
@@ -260,4 +382,3 @@ function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifi
     </D:propstat>
   </D:response>`;
 }
-

@@ -1,95 +1,75 @@
-# ⚙️ إعدادات متقدمة والتحكم بالأداء (Advanced Guide)
-
-صُممت **DriveKit** لتكون قابلة للتخصيص الدقيق لتناسب التطبيقات الضخمة والشركات التي تتطلب أداءً فائقاً واستهلاكاً مدروساً لموارد السيرفر.
+# ⚙️ Advanced Settings & Optimization
 
 ---
 
-## ⚡ الوصول المباشر للعميل الرسمي (`drive.getRawClient`)
+## ⚡ Direct Access to Raw Client (`drive.getRawClient`)
 
-إذا كنت بحاجة إلى استدعاء واجهات Google Drive API v3 متخصصة وغير شائعة (مثل: إدارة الأجهزة، إعداد Webhooks للإشعارات اللحظية، أو المراجعات التحريرية Revisions)، يمكنك الوصول المباشر إلى كائن `@googleapis/drive` الموثّق مسبقاً:
+When you need specialized Google Drive API v3 endpoints (revisions, comments, webhooks, or team drives), get the authenticated official client instance:
 
 ```typescript
 const drive = await createDrive({ auth: { keyFilePath: './service-account.json' } });
 
-// جلب العميل الرسمي الخام
+// Get underlying @googleapis/drive client
 const raw = await drive.getRawClient();
 
-// يمكنك استدعاء أي دالة في Google Drive API v3 مباشرة!
-const revisions = await raw.revisions.list({
-  fileId: 'FILE_ID',
-});
-
-console.log(revisions.data);
+// Call any native v3 method directly
+const res = await raw.revisions.list({ fileId: 'FILE_ID' });
+console.log(res.data);
 ```
 
 ---
 
-## 🚀 ضبط حجم القطع لرفع فائق السرعة (Chunk Tuning)
+## 🚀 Resumable Chunk Tuning
 
-في الرفع المتقطع، تفرض Google أن يكون حجم القطعة من مضاعفات **256 KiB** (أي مضاعفات 262,144 بايت).
-- **الافتراضي في DriveKit**: هو **8 MiB** (8,388,608 بايت) وهو الحجم المتوازن والمثالي لمعظم خطوط الإنترنت.
-- **للملفات العملاقة وسيرفرات مراكز البيانات**: يُنصح برفع القطعة إلى **16 MiB** أو **32 MiB** لتقليل عدد طلبات HTTP وتحقيق سرعة قصوى:
+Google requires chunk sizes to be multiples of **256 KiB**:
+- **DriveKit default**: **8 MiB** (balanced for standard networks).
+- **High-throughput servers**: Set to **16 MiB** or **32 MiB** to minimize HTTP roundtrips:
 
 ```typescript
 const drive = await createDrive({
-  // تخصيص حجم القطعة على مستوى الأداة ككل
-  uploadChunkSize: 16 * 1024 * 1024, // 16MB
+  uploadChunkSize: 16 * 1024 * 1024, // 16MB default
 });
 
-// أو تخصيصه لملف محدد أثناء الرفع:
+// Or per-upload:
 await drive.upload({
-  source: './massive-database.sql.gz',
+  source: './large_dataset.tar.gz',
   parent: '/Backups',
-  chunkSize: 32 * 1024 * 1024, // 32MB لهذا الملف
+  chunkSize: 32 * 1024 * 1024, // 32MB
 });
 ```
 
 ---
 
-## 🛡️ تخصيص خوارزمية إعادة المحاولة (Exponential Backoff with Full Jitter)
+## 🛡️ Exponential Backoff with Full Jitter
 
-عندما ترسل آلاف الطلبات في وقت قصير، قد تفرض Google حظراً مؤقتاً بالرمز `429 Too Many Requests`.
-تقوم DriveKit تلقائياً بحساب التأخير الزمني التنازلي مع تشويش عشوائي كامل (Jitter) وفق المعادلة:
+DriveKit retries transient errors (408, 429, 500, 502, 503, 504) automatically:
 $$\text{delay} = \text{random}(0, \min(\text{maxDelay}, \text{baseDelay} \times 2^{\text{attempt}}))$$
-
-يمكنك تخصيص معايير إعادة المحاولة عند التهيئة:
 
 ```typescript
 const drive = await createDrive({
   auth: { keyFilePath: './service-account.json' },
-  maxRetries: 7,          // عدد محاولات الإعادة (افتراضياً 5)
-  retryBaseDelayMs: 1500, // التأخير الأساسي الأولي بالمللي ثانية (افتراضياً 1000ms)
+  maxRetries: 7,          // 7 attempts
+  retryBaseDelayMs: 1500, // 1.5s initial base delay
 });
 ```
 
 ---
 
-## 🧠 إدارة الذاكرة العشوائية (Low Memory Footprint)
+## 🧠 Low Memory Footprint
 
-عند رفع ملفات ضخمة (5GB أو 20GB):
-- لا تقم أبداً بتحميل الملف بالكامل في الذاكرة عبر `fs.readFileSync`.
-- مرر مسار الملف كـ `string` إلى `source` مباشرة:
-  ```typescript
-  await drive.upload({ source: '/data/huge_file.iso', ... });
-  ```
-  تستخدم DriveKit واجهة `FileHandle` منخفضة المستوى لقراءة القطعة المطلوبة فقط من القرص وحذفها فور إرسالها، مما يبقي استهلاك الذاكرة في تطبيقك **أقل من 30 ميجابايت** مهما كان حجم الملف المرفوع!
+Passing a file path `string` to `upload({ source: '/path/to/huge.iso' })` streams chunks directly from disk with low-level `FileHandle` descriptors, keeping memory usage **under 30 MB** even for 20+ GB files!
 
 ---
 
-## 🔒 تخصيص الصلاحيات (Custom Scopes)
+## 🔒 Custom Scopes
 
-افتراضياً، تطلب DriveKit الصلاحية الكاملة `https://www.googleapis.com/auth/drive`.
-إذا كنت تريد حصر الصلاحيات لأسباب أمنية (مثلاً للقراءة فقط أو للملفات المنشأة بواسطة التطبيق فقط):
+Restrict permissions when needed:
 
 ```typescript
 const drive = await createDrive({
   auth: {
     keyFilePath: './service-account.json',
-    scopes: [
-      'https://www.googleapis.com/auth/drive.file', // فقط الملفات التي أنشأها التطبيق
-      // أو للقراءة فقط:
-      // 'https://www.googleapis.com/auth/drive.readonly',
-    ],
+    scopes: ['https://www.googleapis.com/auth/drive.file'],
   },
 });
 ```

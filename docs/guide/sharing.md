@@ -1,52 +1,37 @@
-# 🔗 المشاركة والأذونات (Sharing & Permissions)
-
-تسهل **DriveKit** التحكم في صلاحيات الوصول ومشاركة الملفات والحصول على الروابط المباشرة في سطر واحد:
+# 🔗 Sharing & Permissions
 
 ---
 
-## 🌐 جعل الملف عاماً (drive.sharePublic)
-
-لجعل أي ملف أو مجلد متاحاً لأي شخص لديه الرابط والحصول على رابط المعاينة والرابط المباشر للتحميل:
+## 🌐 Instant Public Sharing
 
 ```typescript
 const links = await drive.sharePublic(fileId, 'reader');
 
-console.log('رابط المعاينة:', links.previewLink);
-// https://drive.google.com/file/d/1XbC.../view
-
-console.log('رابط التحميل المباشر:', links.directDownloadLink);
-// https://drive.google.com/uc?export=download&id=1XbC...
+console.log('Preview Link:', links.previewLink);
+console.log('Direct Download Link:', links.directDownloadLink);
 ```
 
 ---
 
-## 👥 مشاركة الملف مع بريد محدد (drive.share)
+## 👥 User Sharing
 
 ```typescript
 await drive.share(fileId, {
-  role: 'writer',                     // 'reader' | 'commenter' | 'writer'
-  type: 'user',                       // 'user' | 'group' | 'domain' | 'anyone'
-  emailAddress: 'colleague@gmail.com',
+  role: 'writer',
+  type: 'user',
+  emailAddress: 'colleague@example.com',
   sendNotificationEmail: true,
-  emailMessage: 'مرحباً، إليك الملف الذي طلبته!',
+  emailMessage: 'Check out the new report!',
 });
 ```
 
 ---
 
-## 🔗 الحصول على روابط المشاركة (drive.getShareableLink)
+## 🏢 Fluent Permission Management
 
-```typescript
-const { previewLink, directDownloadLink } = await drive.getShareableLink('/Documents/report.pdf');
-```
+Manage access directly using fluent resource references:
 
----
-
-## 🏢 إدارة الصلاحيات بدقة (Fluent Permissions)
-
-يمكنك إدارة الصلاحيات بالبريد مباشرة عبر المورد `drive.file()` أو `drive.folder()`:
-
-### منح صلاحية لبريد محدد (`grantAccess`):
+### Grant Access (`grantAccess`):
 ```typescript
 const file = drive.file('/Contracts/Deal.pdf');
 
@@ -54,16 +39,16 @@ await file.grantAccess({
   email: 'partner@company.com',
   role: 'commenter', // 'reader' | 'commenter' | 'writer'
   notify: true,
-  message: 'مرحباً، إليك مسودة العقد للمراجعة وإبداء الملاحظات.'
+  message: 'Here is the draft for your review.'
 });
 ```
 
-### إلغاء الصلاحية بالبريد أو المعرّف (`revokeAccess`):
+### Revoke Access (`revokeAccess`):
 ```typescript
 await file.revokeAccess('partner@company.com');
 ```
 
-### استعراض كافة الصلاحيات الممنوحة (`listPermissions`):
+### List Active Permissions (`listPermissions`):
 ```typescript
 const permissions = await file.listPermissions();
 
@@ -74,9 +59,9 @@ for (const p of permissions) {
 
 ---
 
-## 🏢 دعم الأقراص المشتركة للشركات (Google Workspace Shared Drives)
+## 🏢 Google Workspace Shared Drives
 
-### استعراض الأقراص المشتركة المتاحة (`listSharedDrives`):
+### List Accessible Shared Drives (`listSharedDrives`):
 ```typescript
 const sharedDrives = await drive.listSharedDrives();
 
@@ -85,12 +70,11 @@ for (const sd of sharedDrives) {
 }
 ```
 
-### حصر وتوجيه العمليات لقرص مشترك محدد (`sharedDrive`):
+### Scope Client to a Shared Drive (`sharedDrive`):
 ```typescript
-// إنشاء عميل مخصص محصور في Shared Drive معين
 const marketingDrive = drive.sharedDrive('SHARED_DRIVE_ID');
 
-// كافة العمليات هنا ستتم داخل هذا القرص المشترك حصراً:
+// All subsequent operations are locked within this shared drive:
 const files = await marketingDrive.ls('/');
 await marketingDrive.upload({ source: './banner.png', parent: '/Campaigns/2026' });
 ```

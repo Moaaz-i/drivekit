@@ -10,10 +10,19 @@ import { runInteractiveExplorer, renderFileRow } from './cli/terminal-ui.js';
 
 const program = new Command();
 
+let pkgVersion = '1.1.1';
+try {
+  const pkgPath = new URL('../package.json', import.meta.url);
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  if (pkg.version) pkgVersion = pkg.version;
+} catch {
+  // fallback
+}
+
 program
   .name('drivekit')
   .description(chalk.bold.cyan('⚡ DriveKit CLI: High-speed, flexible Google Drive tool for developers'))
-  .version('1.0.0')
+  .version(pkgVersion)
   .option('-k, --key <path>', 'Path to service account JSON key file')
   .option('-t, --token <token>', 'Google OAuth2 Bearer access token');
 
@@ -550,22 +559,30 @@ program
   .description('Start embedded WebDAV server to mount DriveKit directly in macOS Finder or Windows Explorer')
   .option('-p, --port <port>', 'Port number to listen on', '8080')
   .option('-h, --host <host>', 'Host address to bind to', '127.0.0.1')
+  .option('-u, --username <username>', 'HTTP Basic auth username')
+  .option('-P, --password <password>', 'HTTP Basic auth password')
   .action(async (options) => {
     try {
       const client = await getClient(options);
       const port = parseInt(options.port, 10) || 8080;
       const host = options.host || '127.0.0.1';
+      const auth = options.username ? { username: options.username, password: options.password || '' } : undefined;
 
       console.log(chalk.bold.cyan('\n⚡ DriveKit WebDAV Server'));
       console.log('Starting local WebDAV bridge to Google Drive...\n');
 
-      const serverInstance = await client.serveWebDAV({ port, host });
+      const serverInstance = await client.serveWebDAV({ port, host, auth });
 
       console.log(chalk.bold.green(`🚀 Server active at: ${chalk.underline(serverInstance.url)}`));
+      if (auth) {
+        console.log(chalk.yellow(`🔒 Basic Authentication: ENABLED (User: ${auth.username})`));
+      } else {
+        console.log(chalk.dim('🔓 Authentication: Anonymous (Localhost only recommended)'));
+      }
       console.log(chalk.white('\n📌 How to mount on macOS Finder:'));
       console.log(`   1. Open Finder and press ${chalk.bold.cyan('Cmd + K')} (Connect to Server)`);
       console.log(`   2. Enter: ${chalk.bold.yellow(serverInstance.url)}`);
-      console.log(`   3. Click ${chalk.bold('Connect')} (Connect as Guest)\n`);
+      console.log(`   3. Click ${chalk.bold('Connect')}${auth ? ` and log in as ${auth.username}` : ' (Connect as Guest)'}\n`);
 
       console.log(chalk.white('📌 How to mount on Windows:'));
       console.log(`   1. Open File Explorer -> This PC -> "Map network drive"`);

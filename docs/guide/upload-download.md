@@ -1,96 +1,69 @@
-# 🚀 الرفع المتقطع والتنزيل (Upload & Download)
-
-يقدم محرك الرفع والتنزيل في **DriveKit** أداءً استثنائياً مصمماً لتحمل انقطاعات الشبكة والملفات الضخمة وتتبع السرعة بدقة متناهية.
+# 🚀 Upload & Download
 
 ---
 
-## ⚡ الرفع فائق السرعة (drive.upload)
+## ⚡ High-Speed Uploads (drive.upload)
 
-تدعم دالة `drive.upload` رفع الملفات من:
-1. **مسار ملف محلي** (`filePath: string`)
-2. **ذاكرة بايتية** (`Buffer`)
-3. **تدفق قراءة** (`NodeJS.ReadableStream`)
+Upload local files, in-memory Buffers, or Node.js Streams with live progress tracking:
 
 ```typescript
 const file = await drive.upload({
-  source: './4k-video-render.mp4',
-  name: 'final-cut.mp4',
-  parent: '/Media/Videos/2026', // مسار افتراضي أو Folder ID
-  overwrite: true,              // استبدال الملف إن كان موجوداً
-  chunkSize: 8 * 1024 * 1024,   // قطع بحجم 8MB لأقصى إنتاجية
+  source: './4k-video.mp4',
+  name: 'video.mp4',
+  parent: '/Media/Videos/2026',
+  overwrite: true,
+  chunkSize: 8 * 1024 * 1024, // 8MB chunks
   onProgress: (p) => {
-    console.log(`نسبة الإنجاز: ${p.percentage}%`);
-    console.log(`السرعة الحالية: ${p.speedFormatted}`);
-    console.log(`الوقت المتبقي: ${p.estimatedTimeRemainingSeconds} ثانية`);
-    console.log(`القطعة: ${p.chunkIndex} من ${p.totalChunks}`);
+    console.log(`Progress: ${p.percentage}%`);
+    console.log(`Speed: ${p.speedFormatted}`);
+    console.log(`ETA: ${p.estimatedTimeRemainingSeconds}s`);
+    console.log(`Chunk: ${p.chunkIndex}/${p.totalChunks}`);
   },
 });
 ```
 
-### كائن تقدم الرفع (`UploadProgress`)
-
-| الحقل | النوع | الوصف |
-|---|---|---|
-| `bytesSent` | `number` | عدد البايتات المرسلة حتى اللحظة |
-| `totalBytes` | `number` | الحجم الإجمالي للملف بالبايت |
-| `percentage` | `number` | نسبة الإنجاز المئوية (0 - 100) |
-| `bytesPerSecond` | `number` | سرعة النقل الحالية بالبايت/ثانية |
-| `speedFormatted` | `string` | السرعة بصيغة مقروءة (مثال: `5.4 MB/s`) |
-| `estimatedTimeRemainingSeconds` | `number` | الوقت المتبقي المقدر للانتهاء بالثواني |
-| `chunkIndex` | `number` | رقم القطعة الحالية التي يتم إرسالها |
-| `totalChunks` | `number` | إجمالي عدد القطع |
-
 ---
 
-## 📥 التنزيل والتصدير التلقائي (drive.download)
+## 📥 Download & Auto-Export (drive.download)
 
-تتيح دالة `drive.download` تنزيل الملفات الثنائية العادية، بالإضافة إلى **التحويل والتصدير التلقائي لمستندات Google Workspace**:
+Binary files are streamed or saved directly. **Google Workspace documents are automatically converted**:
+- **Google Docs** $\rightarrow$ PDF (or Word docx)
+- **Google Sheets** $\rightarrow$ Excel xlsx (or CSV)
+- **Google Slides** $\rightarrow$ PDF
 
 ```typescript
-// تنزيل ملف ثنائي أو مستند وحفظه محلياً
 const res = await drive.download('/Documents/Report.docx', {
   destination: './downloads',
-  onProgress: (p) => {
-    console.log(`تم تنزيل ${p.bytesRead} بايت بسرعة ${p.speedFormatted}`);
-  },
+  onProgress: (p) => console.log(`Downloaded ${p.bytesRead} bytes at ${p.speedFormatted}`),
 });
-
-console.log('تم الحفظ في:', res.filePath);
 ```
-
-### التصدير التلقائي لمستندات Google:
-- **Google Docs**: يتم تصديره تلقائياً كـ **PDF** (أو Word عبر خيار `exportMimeType`).
-- **Google Sheets**: يتم تصديره تلقائياً كـ **Excel (.xlsx)** أو CSV.
-- **Google Slides**: يتم تصديره تلقائياً كـ **PDF**.
 
 ---
 
-## ⚡ الرفع الفوري عبر تفادي التكرار السحابي (Instant Cloud Deduplication)
+## ⚡ Instant Cloud Deduplication
 
-عند تفعيل خيار `deduplicate: true`، تقوم DriveKit بحساب بصمة الـ MD5 للملف المحلي والتحقق فورياً في قاعدة بيانات الكاش وسحابة Google Drive:
+By setting `deduplicate: true`, DriveKit hashes your local file and checks the SQLite cache and Google Drive cloud:
 
-- إذا كان الملف موجوداً بالفعل في حسابك، يتم عمل **استنساخ سحابي فوري (Cloud Clone)** خلال **~200ms** دون إرسال بايت واحد عبر شبكة الإنترنت!
-- هذا يوفر استهلاك الإنترنت والوقت بشكل مذهل عند تكرار رفع ملفات الأرشيف والوسائط الضخمة.
+- If an identical file exists, DriveKit performs an **instant cloud-side copy** in **~200ms** with 0 bytes transferred over the network!
+- Ideal for redundant deployments and large backup files.
 
 ```typescript
 const file = await drive.upload({
   source: './50GB-backup.iso',
   parent: '/Backups/Archive',
-  deduplicate: true, // تفعيل الرفع اللحظي السحابي
+  deduplicate: true, // Instant Cloud Upload
 });
 ```
 
 ---
 
-## 📄 قراءة النصوص والـ JSON مباشرة
+## 📄 Read Text & JSON Directly
 
 ```typescript
-// قراءة ملف JSON مباشرة دون حفظه على القرص
-const settings = await drive.getJson('/Config/appsettings.json');
-console.log(settings.database.host);
+// Read JSON file directly
+const config = await drive.getJson('/Config/appsettings.json');
 
-// قراءة ملف نصي أو Google Doc كنص نقي
-const notes = await drive.getText('/Notes/meeting.txt');
-console.log(notes);
+// Read plain text or Google Doc
+const text = await drive.getText('/Notes/meeting.txt');
 ```
 

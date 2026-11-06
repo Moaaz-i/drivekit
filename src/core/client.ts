@@ -26,7 +26,7 @@ import { DriveNotFoundError } from '../errors.js';
 import { withRetry } from '../utils/retry.js';
 import { formatBytes } from '../utils/format.js';
 import { GOOGLE_WORKSPACE_MIME_TYPES } from '../utils/mime.js';
-import { SqliteMetadataCache, type IMetadataCache, type CacheStats } from './cache.js';
+import { SqliteMetadataCache, type IMetadataCache, type CacheStats, type CacheFileEntry } from './cache.js';
 
 export class DriveKit {
   private options: DriveKitOptions;
@@ -177,9 +177,13 @@ export class DriveKit {
    * Lists contents of a folder (by folder ID or path)
    */
   async ls(folderIdOrPath = '/'): Promise<DriveApiFile[]> {
-    if (folderIdOrPath === '/' || folderIdOrPath === 'root') {
+    if (folderIdOrPath === '/' || folderIdOrPath === 'root' || folderIdOrPath === this.rootFolderId) {
+      const parentFilter = this.rootFolderId === 'root'
+        ? "'root' in parents or sharedWithMe = true"
+        : `'${this.rootFolderId}' in parents`;
+
       return await this.query()
-        .raw("'root' in parents or sharedWithMe = true")
+        .raw(parentFilter)
         .notTrashed()
         .orderBy('folder,name')
         .list();
@@ -832,10 +836,19 @@ export class DriveKit {
   async createWriteStream(
     remotePath: string,
     options: Omit<UploadOptions, 'source'> = {}
-  ): Promise<NodeJS.WritableStream> {
+  ): Promise<NodeJS.WritableStream & { done: Promise<DriveApiFile> }> {
     await this.init();
     const { PassThrough } = await import('node:stream');
     const passThrough = new PassThrough();
+
+    let resolveDone!: (file: DriveApiFile) => void;
+    let rejectDone!: (err: Error) => void;
+    const donePromise = new Promise<DriveApiFile>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+
+    (passThrough as any).done = donePromise;
 
     const remoteDir = path.dirname(remotePath);
     const fileName = options.name || options.filename || path.basename(remotePath);
@@ -856,9 +869,10 @@ export class DriveKit {
       fields: 'id, name, mimeType, size, md5Checksum',
       supportsAllDrives: true,
     }).then((res) => {
-      if (res.data.id && this.metadataCacheInstance) {
+      const file = res.data as DriveApiFile;
+      if (file.id && this.metadataCacheInstance) {
         this.metadataCacheInstance.upsertFile({
-          id: res.data.id,
+          id: file.id,
           name: fileName,
           mimeType,
           parentId: targetParentId,
@@ -866,11 +880,13 @@ export class DriveKit {
           trashed: false,
         });
       }
+      resolveDone(file);
     }).catch((err) => {
       passThrough.destroy(err);
+      rejectDone(err);
     });
 
-    return passThrough;
+    return passThrough as any;
   }
 
   // ==========================================
@@ -917,6 +933,7 @@ export class DriveKit {
     const client = this.driveClient!;
     let pageToken: string | undefined = undefined;
     let totalScanned = 0;
+    const rawFiles: drive_v3.Schema$File[] = [];
 
     do {
       const res = await withRetry(async () => {
@@ -932,25 +949,62 @@ export class DriveKit {
       });
 
       const files = res.data.files || [];
-      const entries = files.map((f) => ({
-        id: f.id!,
-        name: f.name || 'untitled',
-        mimeType: f.mimeType || '',
-        size: f.size ? parseInt(f.size, 10) : undefined,
-        parentId: f.parents?.[0],
-        md5Checksum: f.md5Checksum || undefined,
-        trashed: !!f.trashed,
-        modifiedTime: f.modifiedTime || undefined,
-      }));
-
-      this.metadataCacheInstance.upsertFiles(entries);
-      totalScanned += entries.length;
+      for (const f of files) {
+        if (f.id) rawFiles.push(f);
+      }
+      totalScanned += files.length;
       options?.onProgress?.(totalScanned);
 
       pageToken = res.data.nextPageToken || undefined;
     } while (pageToken);
 
+    // Build hierarchical paths using memoization
+    const fileMap = new Map<string, drive_v3.Schema$File>();
+    for (const f of rawFiles) {
+      fileMap.set(f.id!, f);
+    }
+
+    const pathMemo = new Map<string, string>();
+    const rootId = this.rootFolderId;
+
+    function computePath(id: string, visited = new Set<string>()): string {
+      if (pathMemo.has(id)) return pathMemo.get(id)!;
+      if (visited.has(id)) return ''; // cycle detection
+      visited.add(id);
+
+      const f = fileMap.get(id);
+      if (!f || !f.name) return '';
+
+      const parentId = f.parents?.[0];
+      if (!parentId || parentId === 'root' || parentId === rootId) {
+        const p = `/${f.name}`;
+        pathMemo.set(id, p);
+        return p;
+      }
+
+      const parentPath = computePath(parentId, visited);
+      const fullPath = parentPath ? `${parentPath}/${f.name}` : `/${f.name}`;
+      pathMemo.set(id, fullPath);
+      return fullPath;
+    }
+
+    const entries: CacheFileEntry[] = rawFiles.map((f) => ({
+      id: f.id!,
+      name: f.name || 'untitled',
+      mimeType: f.mimeType || '',
+      size: f.size ? parseInt(f.size, 10) : undefined,
+      parentId: f.parents?.[0],
+      path: computePath(f.id!),
+      md5Checksum: f.md5Checksum || undefined,
+      trashed: !!f.trashed,
+      modifiedTime: f.modifiedTime || undefined,
+    }));
+
+    // Upsert all and prune deleted entries
+    this.metadataCacheInstance.upsertFiles(entries);
+    this.metadataCacheInstance.pruneMissing(rawFiles.map((f) => f.id!));
     this.metadataCacheInstance.setMeta('last_sync_timestamp', new Date().toISOString());
+
     return this.metadataCacheInstance.getStats();
   }
 
@@ -1058,7 +1112,7 @@ export class DriveKit {
   /**
    * Starts an embedded WebDAV server to mount DriveKit directly in macOS Finder or Windows Explorer
    */
-  async serveWebDAV(options?: { port?: number; host?: string }) {
+  async serveWebDAV(options?: { port?: number; host?: string; auth?: { username?: string; password?: string } }) {
     const { startWebDAVServer } = await import('../server/webdav.js');
     return await startWebDAVServer(this, options);
   }

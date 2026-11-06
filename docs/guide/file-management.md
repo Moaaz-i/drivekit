@@ -1,87 +1,72 @@
-# 🗂️ إدارة الملفات والعمليات (File Management & CRUD)
+# 🗂️ File Management & CRUD
 
-توفر **DriveKit** مجموعة دوال متكاملة لتنفيذ كافة عمليات إدارة الملفات والمجلدات بكل بساطة وسرعة، مع دعم المسارات الافتراضية والمعرّفات على حد سواء.
+DriveKit provides an intuitive suite of methods to handle the complete lifecycle of files and folders using either virtual paths or IDs.
 
 ---
 
-## 🔍 التحقق من وجود الملف أو المجلد (`drive.exists`)
-
-تتيح لك دالة `drive.exists` فحص وجود أي مسار أو معرّف دون التسبب في أخطاء استثنائية:
+## 🔍 Checking Existence (`drive.exists`)
 
 ```typescript
-// التحقق عبر مسار افتراضي
-const isFound = await drive.exists('/Backups/2026/db.dump');
-if (isFound) {
-  console.log('الملف موجود بالفعل!');
-}
+// Check by virtual path
+const found = await drive.exists('/Backups/2026/db.dump');
 
-// أو التحقق عبر معرّف ID مباشر
+// Check by ID
 const fileExists = await drive.exists('1XbCHTHd23cc8eOzSkan4Vj0p-6iVhE9C');
 ```
 
 ---
 
-## 📋 جلب بيانات الملف الوصفية (`drive.getFile`)
-
-تسترجع البيانات الشاملة للملف (الاسم، الحجم، تاريخ التعديل والإنشاء، الآباء، الروابط، الخصائص):
+## 📋 Get File Metadata (`drive.getFile`)
 
 ```typescript
 const file = await drive.getFile('/Documents/Invoice.pdf');
 
-console.log('معرف الملف:', file.id);
-console.log('الاسم:', file.name);
-console.log('النوع:', file.mimeType);
-console.log('الحجم:', file.size);
-console.log('تاريخ التعديل:', file.modifiedTime);
-console.log('رابط المعاينة:', file.webViewLink);
-console.log('رابط التنزيل المباشر:', file.webContentLink);
+console.log('ID:', file.id);
+console.log('Name:', file.name);
+console.log('MIME:', file.mimeType);
+console.log('Size:', file.size);
+console.log('Modified:', file.modifiedTime);
+console.log('Preview:', file.webViewLink);
+console.log('Direct Download:', file.webContentLink);
 ```
 
 ---
 
-## 🗑️ الحذف ونقل الملفات للسلة (`drive.delete` و `drive.trash`)
-
-تدعم الأداة النقل الآمن للسلة أو الحذف النهائي المباشر:
+## 🗑️ Trashing & Permanent Deletion (`drive.delete` & `drive.trash`)
 
 ```typescript
-// 1. نقل الملف أو المجلد إلى السلة (Trash) - يمكن استرجاعه لاحقاً
+// 1. Move to Trash (can be restored later)
 await drive.trash('/OldData/archive.zip');
-// أو:
+// or:
 await drive.delete('/OldData/archive.zip', false);
 
-// 2. الحذف النهائي الأبدي (Permanent Delete)
+// 2. Permanent Delete (cannot be recovered)
 await drive.delete('/Temp/unneeded.log', true);
 ```
 
-> **ملاحظة:** عند حذف مسار افتراضي، تقوم DriveKit تلقائياً بتحديث وتفريغ التخزين المؤقت (Cache Invalidation) لهذا المسار فوراً.
+> **Note:** Whenever a path is deleted or trashed, DriveKit automatically invalidates its cached path entry.
 
 ---
 
-## ♻️ استعادة الملفات من السلة (`drive.restore`)
-
-إذا قمت بنقل ملف للسلة بالخطأ، يمكنك استعادته بلمسة واحدة:
+## ♻️ Restoring from Trash (`drive.restore`)
 
 ```typescript
 await drive.restore(fileId);
-console.log('تمت استعادة الملف من السلة بنجاح!');
 ```
 
 ---
 
-## 📦 نقل الملفات بين المجلدات (`drive.move`)
-
-لنقل ملف من مجلد إلى آخر مع تحديث الآباء تلقائياً:
+## 📦 Moving Files Between Folders (`drive.move`)
 
 ```typescript
-// نقل ملف إلى مجلد آخر عبر مسار افتراضي (يتم إنشاء المجلد الهدف تلقائياً إن لم يوجد!)
+// Target folder is auto-created if it doesn't exist!
 const updatedFile = await drive.move('/Inbox/contract.pdf', '/Archive/2026');
-
-console.log(`تم نقل الملف ${updatedFile.name} إلى المجلد الجديد!`);
+console.log(`Moved to new folder: ${updatedFile.name}`);
 ```
 
 ---
 
-## ✏️ إعادة تسمية الملفات (`drive.rename`)
+## ✏️ Renaming Files (`drive.rename`)
 
 ```typescript
 await drive.rename('/Documents/draft.docx', 'final-report.docx');
@@ -89,16 +74,14 @@ await drive.rename('/Documents/draft.docx', 'final-report.docx');
 
 ---
 
-## 📄 نسخ الملفات (`drive.copy`)
-
-لإنشاء نسخة مطابقة من ملف موجود، مع إمكانية تحديد اسم جديد ومجلد هدف مختلف:
+## 📄 Copying Files (`drive.copy`)
 
 ```typescript
-const copiedFile = await drive.copy('/Templates/agreement.docx', {
+const copied = await drive.copy('/Templates/agreement.docx', {
   name: 'Agreement-Client-A.docx',
-  parent: '/Clients/Client-A', // مسار افتراضي أو معرّف
+  parent: '/Clients/Client-A',
 });
 
-console.log('تم إنشاء النسخة بمعرف:', copiedFile.id);
+console.log('Copied File ID:', copied.id);
 ```
 

@@ -1,94 +1,97 @@
-# ⚡ محرك الكاش المحلي فائق السرعة (SQLite Cache Engine)
+# ⚡ Persistent SQLite Cache Engine
 
-تأتي مكتبة **DriveKit** بمحرك كاش محلي دائم فائق التطور يعتمد على **`node:sqlite`** المدمج في Node.js 22. يقوم هذا المحرك بفهرسة شجرة المجلدات، معرّفات الملفات، وتوقيعات الـ MD5 محلياً، مما يتيح استجابة فورية في **0ms** لعمليات فحص المسارات واستعراض المجلدات دون استهلاك كوتا Google Drive API.
-
----
-
-## 🌟 لماذا محرك SQLite المحلي؟
-
-1. **سرعة خارقة (0ms Path Resolution)**: بدلاً من إرسال طلبات شبكة تسلسلية للبحث عن معرف كل مجلد، يتم جلب المسار من قاعدة البيانات المحلية فورياً.
-2. **استمرار الكاش عبر الجلسات (Persistent across CLI Runs)**: يبقى الكاش مخزناً على جهازك في `~/.drivekit/cache.db` حتى بعد إعادة تشغيل السيرفر أو انتهاء أمر الـ CLI.
-3. **تفادي استهلاك الكوتا (Rate-Limit Immune)**: تجنب مواجهة أخطاء `429 Too Many Requests` أثناء العمليات المتكررة.
-4. **صفر مكتبات خارجية (Zero-Dependency)**: يعمل مباشرة عبر محرك SQLite الداخلي في Node.js دون الحاجة لترجمة كود C++ بواسطة node-gyp.
+**DriveKit** features a high-performance, embedded metadata cache engine powered by Node.js 22's native **`node:sqlite`**. It indexes directory trees, folder hierarchies, and MD5 hashes locally on your machine, enabling **instant 0ms path resolution** without consuming Google Drive API quota.
 
 ---
 
-## 💻 الاستخدام البرمجي
+## 🌟 Why Persistent SQLite Cache?
 
-### 1. تفعيل الكاش تلقائياً
+1. **Blazing Fast (0ms Path Lookups)**: Replaces sequential network calls with local database lookups.
+2. **Persistent Across CLI Sessions**: Cached metadata resides on disk at `~/.drivekit/cache.db`, remaining intact after your server or CLI command finishes.
+3. **Quota Protection**: Drastically reduces HTTP requests to prevent `429 Too Many Requests` rate limit errors.
+4. **Zero External Dependencies**: Operates natively without requiring C++ compilation (`node-gyp`).
 
-يعمل الكاش بشكل تلقائي وافتراضي عند إنشاء أي عميل DriveKit:
+---
+
+## 💻 Programmatic Usage
+
+### 1. Default Automatic Caching
+
+Persistent caching is enabled by default in DriveKit:
 
 ```typescript
 import { createDrive } from 'drivekit';
 
 const drive = await createDrive({
   auth: { keyFilePath: './service-account.json' },
-  enablePersistentCache: true, // مفعل افتراضياً
-  // يمكنك تحديد مسار مخصص لقاعدة البيانات (اختياري)
-  // cacheDatabasePath: './my-custom-cache.db'
+  enablePersistentCache: true, // Default: true
+  // Optional custom SQLite file path:
+  // cacheDatabasePath: './custom-cache.db'
 });
 ```
 
 ---
 
-### 2. مزامنة وفهرسة محتويات Drive في الكاش (`syncCache`)
+### 2. Crawl and Index Entire Drive (`syncCache`)
 
-يقوم هذا الأمر بمسح حساب Google Drive دفعة واحدة (Bulk List) وفهرسة كافة الملفات والمجلدات في قاعدة البيانات المحلية:
+Crawl all files and folders into the local SQLite database. In v1.1.1, `syncCache()` dynamically computes complete hierarchical paths (e.g. `/Backups/2026/db.sql`) and automatically prunes deleted/stale records from the database:
 
 ```typescript
 const stats = await drive.syncCache({
   onProgress: (scanned) => {
-    console.log(`تم مسح وفهرسة ${scanned} عنصراً...`);
+    console.log(`Scanned and indexed ${scanned} items...`);
   }
 });
 
-console.log(`إجمالي المجلدات المفهرسة: ${stats.folderCount}`);
-console.log(`إجمالي الملفات المفهرسة:   ${stats.fileCount}`);
+console.log(`Folders indexed: ${stats.folderCount}`);
+console.log(`Files indexed:   ${stats.fileCount}`);
+console.log(`Database Path:   ${stats.databasePath}`);
 ```
+
+> **Note on Cross-Version Compatibility:** In environments where Node 22 native `node:sqlite` is unavailable (e.g., Node 18 or 20 CI runners), DriveKit transparently falls back to an internal In-Memory cache without throwing errors.
 
 ---
 
-### 3. استعراض إحصائيات الكاش (`getCacheStats`)
+### 3. Retrieve Cache Statistics (`getCacheStats`)
 
 ```typescript
 const stats = await drive.getCacheStats();
 
 if (stats) {
-  console.log(`مسار قاعدة البيانات: ${stats.databasePath}`);
-  console.log(`عدد الملفات: ${stats.fileCount}`);
-  console.log(`عدد المجلدات: ${stats.folderCount}`);
-  console.log(`الحجم الكلي: ${stats.totalSizeBytes} بايت`);
-  console.log(`تاريخ آخر مزامنة: ${stats.lastSyncTime}`);
+  console.log(`Database Path: ${stats.databasePath}`);
+  console.log(`File Count:    ${stats.fileCount}`);
+  console.log(`Folder Count:  ${stats.folderCount}`);
+  console.log(`Total Size:    ${stats.totalSizeBytes} bytes`);
+  console.log(`Last Sync:     ${stats.lastSyncTime}`);
 }
 ```
 
 ---
 
-### 4. مسح الكاش (`clearCache`)
+### 4. Clear the Cache (`clearCache`)
 
 ```typescript
 await drive.clearCache();
-console.log('تم تنظيف الكاش المحلي بنجاح');
+console.log('Cache cleared successfully');
 ```
 
 ---
 
-## 🛠️ أوامر سطر الأوامر (CLI)
+## 🛠️ CLI Commands
 
-يمكنك إدارة الكاش المحلي مباشرة عبر الطرفية:
+Manage the local cache directly from your terminal:
 
-### عرض حالة وإحصائيات الكاش:
+### View cache status and stats:
 ```bash
 npx drivekit cache status
 ```
 
-### عمل مزامنة وفهرسة لحسابك السحابي:
+### Crawl and sync your Drive metadata:
 ```bash
 npx drivekit cache sync
 ```
 
-### مسح قاعدة البيانات المحلية:
+### Clear the local SQLite cache:
 ```bash
 npx drivekit cache clear
 ```

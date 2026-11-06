@@ -199,6 +199,7 @@ export class PathResolver {
       }
 
       if (file && file.id) {
+        const segmentParentId = currentParentId;
         currentParentId = file.id;
 
         if (this.metadataCache) {
@@ -206,7 +207,7 @@ export class PathResolver {
             id: file.id,
             name: file.name || segment,
             mimeType: file.mimeType || '',
-            parentId: currentParentId,
+            parentId: segmentParentId,
             path: currentPath,
             trashed: false,
           });
@@ -250,6 +251,7 @@ export class PathResolver {
             throw new Error(`Failed to create folder "${segment}" under parent "${currentParentId}"`);
           }
 
+          const segmentParentId = currentParentId;
           currentParentId = newFolder.id;
 
           if (this.metadataCache) {
@@ -257,7 +259,7 @@ export class PathResolver {
               id: newFolder.id,
               name: segment,
               mimeType: GOOGLE_WORKSPACE_MIME_TYPES.FOLDER,
-              parentId: currentParentId,
+              parentId: segmentParentId,
               path: currentPath,
               trashed: false,
             });

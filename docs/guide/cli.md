@@ -1,144 +1,161 @@
-# 💻 أداة سطر الأوامر (DriveKit CLI)
+# 💻 DriveKit Command Line Interface (CLI)
 
-تتضمن **DriveKit** أداة طرفية مدمجة وقوية تتيح لك إدارة ملفاتك ورفعها وتنزيلها مباشرة من التيرمينال دون كتابة كود!
+**DriveKit** comes equipped with a modern, interactive CLI that allows you to manage, sync, and inspect your Google Drive directly from your terminal.
 
 ---
 
-## 🚀 التشغيل المباشر
+## 🚀 Running the CLI
 
 ```bash
-# ضبط مسار ملف المصادقة
+# Set your credentials environment variable
 export GOOGLE_APPLICATION_CREDENTIALS="./service-account.json"
 
-# أو تمريره مباشرة عبر علم -k
+# Or pass directly via -k / --key flag
 npx drivekit ls / -k ./service-account.json
 ```
 
 ---
 
-## 🛠️ قائمة الأوامر المتاحة
+## 🛠️ Available Commands
 
-### 1. استعراض المساحة والكوتا التخزينية (`quota`)
+### 1. Storage Quota Check (`quota`)
 ```bash
 npx drivekit quota
 ```
-يعرض بيانات الحساب، والمساحة المستهلكة، والمساحة الموجودة في السلة بنظام ملون.
+Displays total storage used, cloud quota, and trash volume in styled colored graphs.
 
 ---
 
-### 2. استعراض الملفات والمجلدات (`ls`)
+### 2. List Files & Folders (`ls`)
 ```bash
-# استعراض المجلد الجذري والمشترك
 npx drivekit ls /
-
-# استعراض مجلد محدد
 npx drivekit ls /Backups/2026
 ```
 
 ---
 
-### 3. رفع ملف مع شريط تقدم وحساب السرعة (`upload`)
+### 3. High-Speed Upload with Deduplication (`upload`)
 ```bash
 npx drivekit upload ./database-dump.sql /Backups -o -d
 ```
-- خيار `-o` أو `--overwrite`: استبدال الملف إن كان موجوداً مسبقاً.
-- خيار `-d` أو `--dedup`: تفعيل التكرار الفوري السحابي (Instant Cloud Upload) عبر الـ MD5 Checksum.
-- يعرض شريط تقدم حي: النسبة المئوية %، السرعة الحالية (MB/s)، والوقت المتبقي (ETA).
+- `-o, --overwrite`: Overwrite existing remote file.
+- `-d, --dedup`: Instant Cloud Upload via MD5 deduplication (0 bytes transferred if file exists).
+- Displays real-time progress: %, current speed (MB/s), and ETA.
 
 ---
 
-### 4. المتصفح التفاعلي في التيرمينال (`explore`)
+### 4. Interactive Terminal Explorer (`explore`)
 ```bash
 npx drivekit explore /
 ```
-يتيح لك تصفح المجلدات بأسهم لوحة المفاتيح والضغط على Enter للدخول في المجلدات والعودة بـ Backspace مع روابط تشعبية قابلة للنقر (OSC-8 Hyperlinks).
+Browse Google Drive directories interactively with keyboard arrow keys, <kbd>Enter</kbd> to enter folders, <kbd>Backspace</kbd> to go up, and clickable OSC-8 terminal hyperlinks.
 
 ---
 
-### 5. إدارة الكاش المحلي فائق السرعة (`cache`)
+### 5. Persistent SQLite Cache (`cache`)
 ```bash
-# عرض إحصائيات الكاش ومسار قاعدة بيانات SQLite
+# View cache statistics and SQLite database path
 npx drivekit cache status
 
-# مسح وفهرسة كافة محتويات Drive في الكاش المحلي
+# Crawl and index all Drive metadata for 0ms lookups
 npx drivekit cache sync
 
-# تفريغ الكاش المحلي
+# Clear local SQLite database
 npx drivekit cache clear
 ```
 
 ---
 
-### 6. تشغيل خادم WebDAV لربط Drive محلياً (`serve`)
+### 6. Embedded WebDAV Server (`serve`)
 ```bash
 npx drivekit serve --port 8080
 ```
-يتيح ربط حساب Google Drive كمحرك أقراص محلي في Finder على macOS أو File Explorer في Windows.
+Starts a WebDAV bridge to mount Google Drive as a native disk volume in macOS Finder (<kbd>Cmd</kbd> + <kbd>K</kbd>) or Windows File Explorer.
 
 ---
 
-### 7. استعراض الأقراص المشتركة للمؤسسات (`shared-drives`)
+### 7. Google Workspace Shared Drives (`shared-drives`)
 ```bash
 npx drivekit shared-drives
 ```
-استعراض كافة Google Workspace Shared Drives المتاحة ومعرفاتها.
+Lists all accessible enterprise Shared Drives and their IDs.
 
 ---
 
-### 8. تنزيل ملف (`download`)
+### 8. Download File (`download`)
 ```bash
 npx drivekit download FILE_ID_OR_PATH ./destination-folder
 ```
 
 ---
 
-### 9. مشاركة ملف والحصول على الروابط (`share`)
+### 9. Share File & Get Links (`share`)
 ```bash
-# جعله عاماً للجميع مع استخراج الرابط المباشر
+# Make public
 npx drivekit share FILE_ID
 
-# مشاركته مع بريد محدد
+# Share with specific email
 npx drivekit share FILE_ID user@example.com
 ```
 
 ---
 
-### 10. مزامنة مجلد محلي بالكامل بالتوازي (`sync`)
+### 10. Concurrently Sync Local Directory (`sync`)
 ```bash
 npx drivekit sync ./dist /Websites/Production -c 5 -o
 ```
-- `-c 5`: رفع 5 ملفات بالتوازي.
-- `-o`: استبدال الملفات المكررة.
 
 ---
 
-### 11. تنزيل مجلد كامل من السحابة (`pull`)
+### 11. Pull Remote Folder to Local (`pull`)
 ```bash
 npx drivekit pull /Backups/2026 ./local-backups
 ```
 
 ---
 
-### 12. تنظيف المساحة والملفات الكبيرة (`clean`)
+### 12. Storage Cleaner & Duplicates (`clean`)
 ```bash
-# استعراض أكبر الملفات المستهلكة للمساحة
+# Top 10 largest files
 npx drivekit clean --largest 10
 
-# العثور على الملفات المكررة بالـ MD5
+# Scan for duplicate files by MD5
 npx drivekit clean --duplicates
 
-# تفريغ سلة المهملات
+# Empty Google Drive trash
 npx drivekit clean --empty-trash
 ```
 
 ---
 
-### 13. حذف ملف أو نقله للسلة (`delete`)
+### 13. Delete File or Move to Trash (`delete`)
 ```bash
-# نقله للسلة
 npx drivekit delete FILE_ID_OR_PATH
-
-# حذفه نهائياً
 npx drivekit delete FILE_ID_OR_PATH --permanent
 ```
 
+---
+
+### 14. Embedded WebDAV Server (`serve`)
+```bash
+# Start local server on port 8080
+npx drivekit serve --port 8080
+
+# Start with HTTP Basic Authentication enabled
+npx drivekit serve --port 8080 --username admin --password secret
+```
+Mount Google Drive as a local filesystem volume in macOS Finder (<kbd>Cmd + K</kbd>) or Windows Explorer (*Map Network Drive*).
+
+---
+
+### 15. Manage Local SQLite Cache (`cache`)
+```bash
+# View cache status, total indexed files & size
+npx drivekit cache status
+
+# Crawl and index your Google Drive for instant 0ms lookups
+npx drivekit cache sync
+
+# Clear the local SQLite metadata database
+npx drivekit cache clear
+```

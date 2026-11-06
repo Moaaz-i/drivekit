@@ -33,6 +33,7 @@ export interface IMetadataCache {
   upsertFile(entry: CacheFileEntry): void;
   upsertFiles(entries: CacheFileEntry[]): void;
   deleteFile(id: string): void;
+  pruneMissing(activeIds: string[]): number;
   clear(): void;
   getMeta(key: string): string | null;
   setMeta(key: string, value: string): void;
@@ -86,7 +87,7 @@ export class SqliteMetadataCache implements IMetadataCache {
         CREATE TABLE IF NOT EXISTS files (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
-          mimeType TEXT NOT NULL,
+          mimeType TEXT,
           size INTEGER,
           parentId TEXT,
           path TEXT,
@@ -181,7 +182,7 @@ export class SqliteMetadataCache implements IMetadataCache {
     stmt.run(
       entry.id,
       entry.name,
-      entry.mimeType,
+      entry.mimeType ?? null,
       entry.size ?? null,
       entry.parentId ?? null,
       entry.path ?? null,
@@ -219,6 +220,31 @@ export class SqliteMetadataCache implements IMetadataCache {
     if (!this.initialized || !this.db) return;
     const stmt = this.db.prepare('DELETE FROM files WHERE id = ?');
     stmt.run(id);
+  }
+
+  public pruneMissing(activeIds: string[]): number {
+    if (this.fallbackMemory) {
+      return this.fallbackMemory.pruneMissing(activeIds);
+    }
+    if (!this.initialized || !this.db || activeIds.length === 0) return 0;
+    const idSet = new Set(activeIds);
+    const rows = this.db.prepare('SELECT id FROM files').all();
+    let pruned = 0;
+    this.db.exec('BEGIN TRANSACTION;');
+    try {
+      const deleteStmt = this.db.prepare('DELETE FROM files WHERE id = ?');
+      for (const row of rows) {
+        if (!idSet.has(row.id)) {
+          deleteStmt.run(row.id);
+          pruned++;
+        }
+      }
+      this.db.exec('COMMIT;');
+      return pruned;
+    } catch (e) {
+      this.db.exec('ROLLBACK;');
+      throw e;
+    }
   }
 
   public clear(): void {
@@ -365,6 +391,17 @@ export class MemoryMetadataCache implements IMetadataCache {
   }
   public deleteFile(id: string): void {
     this.files.delete(id);
+  }
+  public pruneMissing(activeIds: string[]): number {
+    const idSet = new Set(activeIds);
+    let pruned = 0;
+    for (const id of Array.from(this.files.keys())) {
+      if (!idSet.has(id)) {
+        this.files.delete(id);
+        pruned++;
+      }
+    }
+    return pruned;
   }
   public clear(): void {
     this.files.clear();

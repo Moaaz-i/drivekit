@@ -1,12 +1,10 @@
-# 🛠️ استكشاف الأخطاء وحلها (Troubleshooting & Errors)
-
-يوثق هذا الدليل كافة أصناف الأخطاء (Error Classes) التي تطلقها **DriveKit** وكيفية تشخيص وحل المشاكل الشائعة التي تواجه المطورين مع Google Drive API.
+# 🛠️ Troubleshooting & Error Reference
 
 ---
 
-## 🛑 أصناف الأخطاء المخصصة (Error Classes)
+## 🛑 Custom Error Classes
 
-ترث كافة أخطاء المكتبة من الكلاس الأساسي `DriveKitError`، مما يتيح لك صيدها والتعامل معها بدقة واحترافية:
+All errors inherit from `DriveKitError`:
 
 ```typescript
 import {
@@ -21,64 +19,42 @@ try {
   await drive.upload({ source: './file.pdf', parent: '/UnknownPath' });
 } catch (error) {
   if (error instanceof DriveNotFoundError) {
-    console.error(`المسار أو المعرف غير موجود: ${error.resourceIdOrPath}`);
+    console.error(`Resource missing: ${error.resourceIdOrPath}`);
   } else if (error instanceof DriveRateLimitError) {
-    console.error(`تم تجاوز كوتا الاستعلامات، يُرجى الانتظار: ${error.retryAfterSeconds}s`);
+    console.error(`Rate limited. Retry after: ${error.retryAfterSeconds}s`);
   } else if (error instanceof DriveUploadError) {
-    console.error(`فشل الرفع بعد إرسال ${error.bytesUploaded} من أصل ${error.totalBytes} بايت`);
+    console.error(`Upload failed after sending ${error.bytesUploaded} bytes`);
   } else if (error instanceof DriveAuthError) {
-    console.error(`خطأ في بيانات التوثيق: ${error.message}`);
-  } else {
-    console.error(`خطأ غير متوقع:`, error);
+    console.error(`Auth error: ${error.message}`);
   }
 }
 ```
 
-| كلاس الخطأ | الكود (`code`) | سبب الحدوث |
+| Error Class | Code | Cause |
 |---|---|---|
-| `DriveAuthError` | `AUTH_ERROR` | فشل التوثيق، مفتاح غير صالح، ملف المفتاح غير موجود، أو توكن منتهي. |
-| `DriveNotFoundError` | `NOT_FOUND` | المسار الافتراضي غير موجود أو معرف الملف غير موجود في الحساب. |
-| `DriveRateLimitError` | `RATE_LIMIT_EXCEEDED` | تجاوز حدود الاستعلامات القصوى المسموحة من Google (429). |
-| `DriveUploadError` | `UPLOAD_ERROR` | فشل إنشاء جلسة الرفع أو انقطاع غير قابل للاسترداد أثناء إرسال القطع. |
-| `DriveKitError` | `DRIVEKIT_ERROR` | الكلاس الأب لكافة أخطاء الحزمة. |
+| `DriveAuthError` | `AUTH_ERROR` | Missing credentials, invalid token, or expired session. |
+| `DriveNotFoundError` | `NOT_FOUND` | Path or file ID does not exist. |
+| `DriveRateLimitError` | `RATE_LIMIT_EXCEEDED` | Google Drive API rate limits (429). |
+| `DriveUploadError` | `UPLOAD_ERROR` | Session initiation or chunk failure. |
+| `DriveKitError` | `DRIVEKIT_ERROR` | Base class for all DriveKit errors. |
 
 ---
 
-## ❓ المشاكل الشائعة وحلولها
+## ❓ Frequently Asked Questions
 
-### 1. خطأ كوتا حساب الخدمة: `Service Accounts do not have storage quota`
-- **السبب:**  
-  في سياسة Google Drive الحالية، حسابات الخدمة (`@...iam.gserviceaccount.com`) تملك **0 بايت** من المساحة التخزينية الخاصة في حسابات Gmail العادية المجانية.
-  لذلك يسمح Google لحساب الخدمة بـ:
-  - استعراض وتنزيل الملفات (`ls` و `download`).
-  - إنشاء مجلدات (`mkdirp` - لأن المجلدات حجمها 0 بايت).
-  - البحث والاستعلام (`query`).
-  - ولكن عند محاولة **رفع ملف جديد بحجم أكبر من 0 بايت**، ترفض Google العملية لأن حساب الخدمة هو مالك الملف ولا يملك رصيد تخزين.
-- **الحل:**
-  1. **الحل الأمثل للحسابات الشخصية:** استخدام **OAuth2 Token** (عبر إدخال `accessToken` في خيارات التهيئة أو تسجيل الدخول بالمستخدم). حيث يستخدم التوكن مساحة الـ 15GB المجانية الخاصة بالمستخدم مباشرة.
-  2. **الحل لشركات Google Workspace:** استخدام مجلدات **Shared Drives** وإضافة حساب الخدمة كعضو فيها.
+### 1. `Service Accounts do not have storage quota`
+- **Cause:** Free personal `@gmail.com` accounts do not allocate storage quota to Service Accounts (`0 B`). A Service Account can list files, create directories (`mkdirp`), read documents, and search, but cannot own files with bytes in personal folders.
+- **Solution:**
+  1. **Personal Accounts:** Use OAuth2 (pass `accessToken: '...'` or use user login). This consumes the user's free 15 GB quota.
+  2. **Google Workspace:** Add the Service Account to a **Shared Drive**.
 
 ---
 
-### 2. خطأ 401: `Login Required` أو `Unregistered callers`
-- **السبب:** الترويسة `Authorization: Bearer` مفقودة أو أن التوكن غير صالح/منتهي الصلاحية.
-- **الحل:**
-  - تأكد من صحة مسار ملف `service-account.json`.
-  - إذا كنت تستخدم `accessToken`، تأكد أنه لم تنتهِ صلاحيته (صلاحية الـ Access Token ساعة واحدة، وتتطلب تجديدها عبر الـ Refresh Token).
+### 2. Error 401: `Login Required`
+- Ensure key file path exists or that the bearer access token has not expired (standard tokens expire in 1 hour).
 
 ---
 
-### 3. خطأ 404: `Resource not found`
-- **السبب:** البحث عن مسار أو معرّف غير موجود أو غير مشارك مع الحساب.
-- **الحل:**
-  - إذا كنت تستخدم Service Account، تأكد أنك قمت بفتح المجلد في Google Drive والضغط على **Share** ومشاركته مع إيميل حساب الخدمة بصلاحية **Editor**.
-  - في المسارات، يمكنك تمرير الخيار `createIfMissing: true` أو استخدام `drive.mkdirp()` لإنشاء المجلدات الناقصة تلقائياً.
-
----
-
-### 4. خطأ 403: `Rate Limit Exceeded` أو `User Rate Limit Exceeded`
-- **السبب:** إرسال عدد كبير جداً من الاستعلامات في الثانية الواحدة.
-- **الحل:**
-  - تدير DriveKit هذا الخطأ تلقائياً عبر آلية Exponential Backoff.
-  - إذا كنت تقوم بمزامنة آلاف الملفات، قلل معامل التوازي: `drive.syncFolder(dir, path, { concurrency: 2 })`.
+### 3. Error 404: `Resource Not Found`
+- Ensure the folder is shared with your Service Account email with **Editor** permissions.
 

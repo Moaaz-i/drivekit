@@ -1,63 +1,53 @@
-# 🧹 إدارة المساحة واكتشاف التكرارات (Storage Cleaner)
+# 🧹 Storage Cleaner & Duplicates
 
-مع مرور الوقت، تمتلئ مساحة Google Drive بملفات ضخمة منسية أو نسخ مكررة لنفس الملفات. توفر **DriveKit** أدوات ذكية لتنظيف الحساب وتحرير المساحة التخزينية.
+Keep your Google Drive storage optimized and free from space-wasters.
 
 ---
 
-## 🔍 كشف أكبر الملفات استهلاكاً للمساحة (`drive.findLargestFiles`)
-
-تسترجع قائمة مرتبة تنازلياً بأثقل الملفات في الحساب:
+## 🔍 Find Largest Space-Eaters (`drive.findLargestFiles`)
 
 ```typescript
-// جلب أكبر 10 ملفات
-const largestFiles = await drive.findLargestFiles(10);
+const largest = await drive.findLargestFiles(10);
 
-for (const file of largestFiles) {
-  console.log(`- ${file.name.padEnd(30)} ${file.formattedSize} (ID: ${file.id})`);
+for (const file of largest) {
+  console.log(`${file.name.padEnd(30)} ${file.formattedSize} (${file.id})`);
 }
 ```
 
 ---
 
-## 👥 اكتشاف الملفات المكررة (`drive.findDuplicates`)
+## 👥 Detect Duplicate Files (`drive.findDuplicates`)
 
-تبحث DriveKit في الحساب وتجمع الملفات المكررة سواء عبر **تطابق الاسم** أو عبر **تطابق بصمة الهاش الرقمية MD5 Checksum**:
+Detect duplicates by exact file name or byte-accurate MD5 checksum:
 
 ```typescript
-// فحص التكرارات عبر تطابق البصمة الرقمية الدقيقة (MD5)
 const duplicates = await drive.findDuplicates({ by: 'md5' });
 
 for (const group of duplicates) {
-  console.log(`الملف: "${group.name}" مكرر ${group.count} مرات بإجمالي حجم: ${group.formattedTotalSize}`);
-  for (const copy of group.files) {
-    console.log(`  - معرّف: ${copy.id} [تاريخ: ${copy.modifiedTime}]`);
-  }
+  console.log(`"${group.name}" has ${group.count} copies (Total: ${group.formattedTotalSize})`);
 }
 ```
 
 ---
 
-## 🗑️ إفراغ سلة المهملات بلمسة واحدة (`drive.emptyTrash`)
-
-في Google Drive، تظل الملفات المحذوفة تستهلك المساحة حتى يتم تفريغ السلة:
+## 🗑️ Empty Trash Bin (`drive.emptyTrash`)
 
 ```typescript
 await drive.emptyTrash();
-console.log('تم تفريغ سلة المهملات بالكامل وتحرير المساحة!');
 ```
 
 ---
 
-## 💻 استخدام منظف المساحة من الـ CLI
+## 💻 CLI Commands
 
 ```bash
-# عرض أكبر 15 ملفاً في الحساب
+# View top 15 largest files
 npx drivekit clean -l 15
 
-# البحث عن الملفات المكررة
+# Scan for duplicates
 npx drivekit clean --duplicates
 
-# تفريغ سلة المهملات فوراً
+# Empty trash
 npx drivekit clean --empty-trash
 ```
 
