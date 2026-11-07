@@ -105,6 +105,8 @@ describe('DriveKit v1.1.1 Hardening & Security Tests', () => {
       });
       const xml = await res.text();
       expect(xml).toContain('hello &amp; world &lt;test&gt;.txt');
+      expect(xml).toContain('<D:getcontenttype>text/plain</D:getcontenttype>');
+      expect(xml).not.toMatch(/<D:prop>(?:(?!<\/D:prop>)[\s\S])*<D:status>/);
     });
 
     it('handles HTTP Range headers with 206 Partial Content', async () => {
@@ -234,6 +236,57 @@ describe('DriveKit v1.1.1 Hardening & Security Tests', () => {
 
       expect(capturedError).not.toBeNull();
       expect(capturedEvent).toBe('upload');
+    });
+  });
+
+  describe('Edge Case Hardening', () => {
+    it('handles 0-byte file buffer upload via directUpload without hanging or throwing', async () => {
+      const mockDrive: any = {
+        files: {
+          create: async (params: any) => ({
+            data: { id: 'empty_file_1', name: params.requestBody?.name, size: '0' },
+          }),
+        },
+      };
+
+      const { ResumableUploader } = await import('../src/core/resumable-uploader.js');
+      const uploader = new ResumableUploader(mockDrive);
+      const res = await uploader.upload({
+        source: Buffer.alloc(0),
+        name: 'empty.txt',
+      });
+
+      expect(res.id).toBe('empty_file_1');
+      expect(res.name).toBe('empty.txt');
+    });
+
+    it('ensures nextPageToken is retained during Symbol.asyncIterator with custom fields', async () => {
+      let requestedFieldsInCall = '';
+      const mockDrive: any = {
+        files: {
+          list: async (params: any) => {
+            requestedFieldsInCall = params.fields;
+            return {
+              data: {
+                files: [{ id: 'f1', name: 'test.pdf' }],
+                nextPageToken: undefined,
+              },
+            };
+          },
+        },
+      };
+
+      const { DriveQueryBuilder } = await import('../src/core/query-builder.js');
+      const builder = new DriveQueryBuilder(mockDrive);
+      builder.fields('files(id, name)');
+
+      const results = [];
+      for await (const file of builder) {
+        results.push(file);
+      }
+
+      expect(results.length).toBe(1);
+      expect(requestedFieldsInCall).toContain('nextPageToken');
     });
   });
 });

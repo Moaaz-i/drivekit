@@ -180,7 +180,7 @@ export function createAutoNamePlugin(options: {
   return {
     name: 'drivekit-official-autoname',
     beforeUpload(opts) {
-      let name = opts.filename;
+      let name = opts.name || opts.filename;
       if (!name && typeof opts.source === 'string') {
         name = path.basename(opts.source);
       }
@@ -199,6 +199,7 @@ export function createAutoNamePlugin(options: {
 
       return {
         ...opts,
+        name: finalName,
         filename: finalName,
       };
     },

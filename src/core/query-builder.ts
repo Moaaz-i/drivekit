@@ -238,6 +238,10 @@ export class DriveQueryBuilder {
     const orderBy = this.orderClauses.join(', ');
     let pageToken: string | undefined = undefined;
 
+    const effectiveFields = this.requestedFields.includes('nextPageToken')
+      ? this.requestedFields
+      : `nextPageToken, ${this.requestedFields}`;
+
     do {
       const res = await withRetry(async () => {
         return await this.drive.files.list({
@@ -245,7 +249,7 @@ export class DriveQueryBuilder {
           orderBy: orderBy || undefined,
           pageSize: this.limitNumber,
           pageToken,
-          fields: this.requestedFields,
+          fields: effectiveFields,
           spaces: this.spaces,
           supportsAllDrives: true,
           includeItemsFromAllDrives: true,

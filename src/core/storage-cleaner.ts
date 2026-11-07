@@ -63,17 +63,27 @@ export class StorageCleaner {
     const mode = options.by || 'name';
     const maxScan = options.maxScan || 1000;
 
-    const res = await withRetry(async () => {
-      return await this.drive.files.list({
-        q: 'trashed = false and mimeType != "application/vnd.google-apps.folder"',
-        pageSize: Math.min(1000, maxScan),
-        fields: 'files(id, name, size, md5Checksum, modifiedTime)',
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-      });
-    });
+    const files: drive_v3.Schema$File[] = [];
+    let pageToken: string | undefined = undefined;
 
-    const files = res.data.files || [];
+    do {
+      const remaining = maxScan - files.length;
+      if (remaining <= 0) break;
+
+      const res = await withRetry(async () => {
+        return await this.drive.files.list({
+          q: 'trashed = false and mimeType != "application/vnd.google-apps.folder"',
+          pageSize: Math.min(1000, remaining),
+          pageToken,
+          fields: 'nextPageToken, files(id, name, size, md5Checksum, modifiedTime)',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        });
+      });
+
+      files.push(...(res.data.files || []));
+      pageToken = res.data.nextPageToken || undefined;
+    } while (pageToken && files.length < maxScan);
     const map = new Map<string, any[]>();
 
     for (const f of files) {

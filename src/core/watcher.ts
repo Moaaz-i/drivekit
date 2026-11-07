@@ -95,7 +95,7 @@ export class DriveWatcher extends EventEmitter {
         const res = await withRetry(async () => {
           return await this.drive.changes.list({
             pageToken: nextPageToken!,
-            fields: 'nextPageToken, newStartPageToken, changes(changeType, fileId, removed, time, file(id, name, mimeType, size, modifiedTime, parents, trashed))',
+            fields: 'nextPageToken, newStartPageToken, changes(changeType, fileId, removed, time, file(id, name, mimeType, size, createdTime, modifiedTime, parents, trashed))',
             supportsAllDrives: true,
             includeItemsFromAllDrives: true,
           });

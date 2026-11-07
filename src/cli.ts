@@ -28,7 +28,22 @@ program
 
 function getAuthConfig(cmdOptions: any): DriveKitAuthConfig {
   const keyFilePath = cmdOptions.key || process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GDRIVE_SERVICE_ACCOUNT_PATH;
-  const accessToken = cmdOptions.token || process.env.GDRIVE_ACCESS_TOKEN;
+  let accessToken = cmdOptions.token || process.env.GDRIVE_ACCESS_TOKEN;
+
+  // Auto-detect saved tokens from `drivekit login` if no credentials explicitly passed
+  if (!keyFilePath && !accessToken) {
+    const tokensFile = path.resolve(process.cwd(), 'gdrive-tokens.json');
+    if (fs.existsSync(tokensFile)) {
+      try {
+        const tokens = JSON.parse(fs.readFileSync(tokensFile, 'utf8'));
+        if (tokens.access_token) {
+          accessToken = tokens.access_token;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   return {
     keyFilePath,

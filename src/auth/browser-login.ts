@@ -139,8 +139,12 @@ export async function loginWithBrowser(options: BrowserLoginOptions): Promise<Lo
       });
     });
 
-    server.on('error', (err) => {
-      reject(err);
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        reject(new Error(`Port ${port} is already in use by another process. Please specify an alternate port with --port <number>.`));
+      } else {
+        reject(err);
+      }
     });
   });
 }

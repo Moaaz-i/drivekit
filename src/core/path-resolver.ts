@@ -184,7 +184,7 @@ export class PathResolver {
 
       // If not found and at root level, check shared folders (e.g. shared with service account)
       if (!file && currentParentId === this.rootFolderId) {
-        const sharedQ = `name = '${escapedName}' and trashed = false`;
+        const sharedQ = `name = '${escapedName}' and sharedWithMe = true and trashed = false`;
         const sharedResponse = await withRetry(async () => {
           return await this.drive.files.list({
             q: sharedQ,

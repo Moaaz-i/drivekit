@@ -54,6 +54,20 @@ export class DriveKit {
   }
 
   /**
+   * Unregisters a middleware plugin by name
+   */
+  unuse(pluginName: string): boolean {
+    return this.pluginManager.unuse(pluginName);
+  }
+
+  /**
+   * Access the underlying plugin manager instance
+   */
+  get plugins(): PluginManager {
+    return this.pluginManager;
+  }
+
+  /**
    * Returns a fluent, chained reference to a specific file
    */
   file(pathOrId: string): DriveFileRef {
@@ -217,7 +231,7 @@ export class DriveKit {
     }
 
     // Check overwrite if requested
-    const targetName = opts.name || opts.filename;
+    const targetName = opts.name || opts.filename || (typeof opts.source === 'string' ? path.basename(opts.source) : undefined);
     if (opts.overwrite && targetName && parentId) {
       const existing = await this.query()
         .inFolder(parentId)
@@ -289,12 +303,18 @@ export class DriveKit {
     });
 
     if (this.metadataCacheInstance && uploaded.id) {
+      const virtualPath =
+        typeof opts.parent === 'string' && opts.parent.startsWith('/')
+          ? `${opts.parent === '/' ? '' : opts.parent}/${uploaded.name || targetName || 'untitled'}`
+          : undefined;
+
       this.metadataCacheInstance.upsertFile({
         id: uploaded.id,
         name: uploaded.name || targetName || 'untitled',
         mimeType: uploaded.mimeType || '',
         size: uploaded.size ? parseInt(uploaded.size, 10) : undefined,
         parentId,
+        path: virtualPath,
         trashed: false,
       });
     }
@@ -380,6 +400,9 @@ export class DriveKit {
     if (this.pathResolverInstance && fileIdOrPath.startsWith('/')) {
       this.pathResolverInstance.invalidatePath(fileIdOrPath);
     }
+    if (this.metadataCacheInstance) {
+      this.metadataCacheInstance.deleteFile(fileId);
+    }
   }
 
   /**
@@ -427,6 +450,16 @@ export class DriveKit {
 
     if (this.pathResolverInstance) {
       this.pathResolverInstance.clearCache();
+    }
+    if (this.metadataCacheInstance) {
+      const cached = this.metadataCacheInstance.getById(fileId);
+      if (cached) {
+        this.metadataCacheInstance.upsertFile({
+          ...cached,
+          parentId: newParentId,
+          path: undefined,
+        });
+      }
     }
 
     return res.data;
@@ -478,6 +511,16 @@ export class DriveKit {
 
     if (this.pathResolverInstance) {
       this.pathResolverInstance.clearCache();
+    }
+    if (this.metadataCacheInstance) {
+      const cached = this.metadataCacheInstance.getById(fileId);
+      if (cached) {
+        this.metadataCacheInstance.upsertFile({
+          ...cached,
+          name: newName,
+          path: undefined,
+        });
+      }
     }
 
     return res.data;
@@ -894,6 +937,13 @@ export class DriveKit {
   // ==========================================
 
   /**
+   * Synchronous getter for the active metadata cache instance
+   */
+  get cache(): IMetadataCache | null {
+    return this.metadataCacheInstance;
+  }
+
+  /**
    * Returns the active persistent metadata cache instance (SQLite/Memory)
    */
   async getMetadataCache(): Promise<IMetadataCache | null> {
@@ -916,6 +966,9 @@ export class DriveKit {
     await this.init();
     if (this.pathResolverInstance) {
       this.pathResolverInstance.clearCache();
+    }
+    if (this.metadataCacheInstance) {
+      this.metadataCacheInstance.clear();
     }
   }
 

@@ -68,6 +68,20 @@ export async function startWebDAVServer(
       const decodedPath = decodeURIComponent(parsedUrl.pathname || '/');
       const virtualPath = decodedPath === '' ? '/' : decodedPath;
 
+      // Fast-reject macOS OS noise files to keep Finder ultra fast and prevent API spam
+      const baseName = path.basename(virtualPath);
+      if (
+        baseName.startsWith('._') ||
+        baseName === '.DS_Store' ||
+        baseName === '.Trashes' ||
+        baseName === '.Spotlight-V100' ||
+        baseName === '.fseventsd'
+      ) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+        return;
+      }
+
       // 2. Handle WebDAV HTTP Verbs
       switch (req.method) {
         case 'OPTIONS': {
@@ -84,6 +98,11 @@ export async function startWebDAVServer(
         case 'PROPFIND': {
           const depth = req.headers['depth'] || '1';
           const xml = await handlePropfind(drive, virtualPath, depth as string);
+          if (xml === null) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+            return;
+          }
           res.writeHead(207, {
             'Content-Type': 'application/xml; charset=utf-8',
           });
@@ -309,7 +328,7 @@ export async function startWebDAVServer(
 /**
  * Generates RFC 4918 multistatus XML response for PROPFIND
  */
-async function handlePropfind(drive: DriveKit, virtualPath: string, depth: string): Promise<string> {
+async function handlePropfind(drive: DriveKit, virtualPath: string, depth: string): Promise<string | null> {
   const responses: string[] = [];
 
   let isFolder = false;
@@ -327,11 +346,12 @@ async function handlePropfind(drive: DriveKit, virtualPath: string, depth: strin
           virtualPath,
           isFolder,
           selfItem.size ? parseInt(selfItem.size, 10) : 0,
-          selfItem.modifiedTime || new Date().toISOString()
+          selfItem.modifiedTime || new Date().toISOString(),
+          selfItem.mimeType || undefined
         )
       );
     } catch {
-      return `<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:"></D:multistatus>`;
+      return null;
     }
   }
 
@@ -339,15 +359,29 @@ async function handlePropfind(drive: DriveKit, virtualPath: string, depth: strin
   if (isFolder && depth !== '0') {
     try {
       const children = await drive.ls(virtualPath);
+      const seenNames = new Map<string, number>();
+
       for (const child of children) {
+        let childName = child.name || 'untitled';
+        if (seenNames.has(childName)) {
+          const count = seenNames.get(childName)! + 1;
+          seenNames.set(childName, count);
+          const ext = path.extname(childName);
+          const base = path.basename(childName, ext);
+          childName = `${base} (${count})${ext}`;
+        } else {
+          seenNames.set(childName, 0);
+        }
+
         const childIsFolder = child.mimeType === 'application/vnd.google-apps.folder';
-        const childPath = virtualPath === '/' ? `/${child.name}` : `${virtualPath}/${child.name}`;
+        const childPath = virtualPath === '/' ? `/${childName}` : `${virtualPath}/${childName}`;
         responses.push(
           renderWebDAVResponse(
             childPath,
             childIsFolder,
             child.size ? parseInt(child.size, 10) : 0,
-            child.modifiedTime || new Date().toISOString()
+            child.modifiedTime || new Date().toISOString(),
+            child.mimeType || undefined
           )
         );
       }
@@ -362,11 +396,22 @@ ${responses.join('\n')}
 </D:multistatus>`;
 }
 
-function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifiedTime: string): string {
-  const encodedHref = encodeURI(href);
+function renderWebDAVResponse(
+  href: string,
+  isDir: boolean,
+  size: number,
+  modifiedTime: string,
+  mimeType?: string
+): string {
+  let cleanHref = href;
+  if (isDir && !cleanHref.endsWith('/')) {
+    cleanHref += '/';
+  }
+  const encodedHref = encodeURI(cleanHref);
   const displayName = escapeXml(path.basename(href) || 'root');
   const resourceType = isDir ? '<D:collection/>' : '';
   const dateFormatted = new Date(modifiedTime).toUTCString();
+  const contentTypeTag = !isDir && mimeType ? `\n        <D:getcontenttype>${escapeXml(mimeType)}</D:getcontenttype>` : '';
 
   return `  <D:response>
     <D:href>${encodedHref}</D:href>
@@ -375,8 +420,7 @@ function renderWebDAVResponse(href: string, isDir: boolean, size: number, modifi
         <D:displayname>${displayName}</D:displayname>
         <D:resourcetype>${resourceType}</D:resourcetype>
         <D:getcontentlength>${isDir ? '0' : size}</D:getcontentlength>
-        <D:getlastmodified>${dateFormatted}</D:getlastmodified>
-        <D:status>HTTP/1.1 200 OK</D:status>
+        <D:getlastmodified>${dateFormatted}</D:getlastmodified>${contentTypeTag}
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>

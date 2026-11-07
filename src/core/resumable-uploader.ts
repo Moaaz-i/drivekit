@@ -55,6 +55,15 @@ export class ResumableUploader {
     const fileName = options.name || path.basename(filePath);
     const mimeType = options.mimeType || lookupMimeType(filePath);
 
+    // 0-byte empty file: use direct upload to avoid empty resumable session loops
+    if (totalBytes === 0) {
+      return await this.directUpload(fs.createReadStream(filePath), {
+        ...options,
+        name: fileName,
+        mimeType,
+      });
+    }
+
     return await this.chunkedUpload({
       filePath,
       totalBytes,
@@ -71,6 +80,16 @@ export class ResumableUploader {
     const totalBytes = buffer.length;
     const fileName = options.name || 'untitled';
     const mimeType = options.mimeType || 'application/octet-stream';
+
+    // 0-byte buffer: use direct upload
+    if (totalBytes === 0) {
+      const { Readable } = await import('node:stream');
+      return await this.directUpload(Readable.from([]), {
+        ...options,
+        name: fileName,
+        mimeType,
+      });
+    }
 
     return await this.chunkedUploadBuffer({
       buffer,
