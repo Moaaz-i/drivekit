@@ -140,6 +140,8 @@ export interface DownloadOptions {
   onProgress?: (progress: DownloadProgress) => void;
   /** Export MIME type for Google Workspace documents */
   exportMimeType?: string;
+  /** Optional pre-resolved file metadata to skip extra Google API roundtrip */
+  metadata?: { name?: string; mimeType?: string; size?: number };
   /** Optional AbortSignal for instant operation cancellation */
   signal?: AbortSignal;
 }

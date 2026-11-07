@@ -199,11 +199,39 @@ export class SqliteMetadataCache implements IMetadataCache {
       return;
     }
     if (!this.initialized || !this.db || entries.length === 0) return;
-    // Execute inside a single transaction for maximum bulk write speed
+
+    // Prepare statement once for maximum bulk performance
+    const stmt = this.db.prepare(`
+      INSERT INTO files (id, name, mimeType, size, parentId, path, md5Checksum, trashed, modifiedTime, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        mimeType = excluded.mimeType,
+        size = excluded.size,
+        parentId = excluded.parentId,
+        path = COALESCE(excluded.path, files.path),
+        md5Checksum = excluded.md5Checksum,
+        trashed = excluded.trashed,
+        modifiedTime = excluded.modifiedTime,
+        updatedAt = excluded.updatedAt
+    `);
+
+    // Execute inside a single transaction
     this.db.exec('BEGIN TRANSACTION;');
     try {
       for (const entry of entries) {
-        this.upsertFile(entry);
+        stmt.run(
+          entry.id,
+          entry.name,
+          entry.mimeType ?? null,
+          entry.size ?? null,
+          entry.parentId ?? null,
+          entry.path ?? null,
+          entry.md5Checksum ? entry.md5Checksum.toLowerCase() : null,
+          entry.trashed ? 1 : 0,
+          entry.modifiedTime ?? null,
+          entry.updatedAt ?? Date.now()
+        );
       }
       this.db.exec('COMMIT;');
     } catch (e) {

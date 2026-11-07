@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Transform } from 'node:stream';
 import type { drive_v3 } from '@googleapis/drive';
 import type { UploadOptions, UploadProgress, DriveApiFile } from '../types.js';
 import { DriveUploadError } from '../errors.js';
 import { formatSpeed } from '../utils/format.js';
 import { lookupMimeType } from '../utils/mime.js';
 import { withRetry } from '../utils/retry.js';
+import { getOptimizedHttpsAgent } from '../utils/http-agent.js';
 
 /** Minimum Google Drive chunk granularity: 256 KiB */
 export const MIN_CHUNK_SIZE = 256 * 1024;
@@ -55,9 +57,13 @@ export class ResumableUploader {
     const fileName = options.name || path.basename(filePath);
     const mimeType = options.mimeType || lookupMimeType(filePath);
 
-    // 0-byte empty file: use direct upload to avoid empty resumable session loops
-    if (totalBytes === 0) {
-      return await this.directUpload(fs.createReadStream(filePath), {
+    // Fast path: files <= MULTIPART_THRESHOLD (5 MB) use single-roundtrip direct multipart upload
+    if (totalBytes <= MULTIPART_THRESHOLD) {
+      const readStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+      const stream = options.onProgress
+        ? this.wrapStreamWithProgress(readStream, totalBytes, options.onProgress)
+        : readStream;
+      return await this.directUpload(stream, {
         ...options,
         name: fileName,
         mimeType,
@@ -81,10 +87,14 @@ export class ResumableUploader {
     const fileName = options.name || 'untitled';
     const mimeType = options.mimeType || 'application/octet-stream';
 
-    // 0-byte buffer: use direct upload
-    if (totalBytes === 0) {
+    // Fast path: buffers <= MULTIPART_THRESHOLD (5 MB) use single-roundtrip direct multipart upload
+    if (totalBytes <= MULTIPART_THRESHOLD) {
       const { Readable } = await import('node:stream');
-      return await this.directUpload(Readable.from([]), {
+      const baseStream = Readable.from(totalBytes === 0 ? [] : [buffer]);
+      const stream = options.onProgress
+        ? this.wrapStreamWithProgress(baseStream, totalBytes, options.onProgress)
+        : baseStream;
+      return await this.directUpload(stream, {
         ...options,
         name: fileName,
         mimeType,
@@ -112,6 +122,59 @@ export class ResumableUploader {
       name: fileName,
       mimeType,
     });
+  }
+
+  /**
+   * Calculates optimal chunk size based on file size for maximum throughput.
+   */
+  private computeAdaptiveChunkSize(totalBytes: number, explicitChunkSize?: number): number {
+    if (explicitChunkSize) {
+      return Math.max(MIN_CHUNK_SIZE, Math.floor(explicitChunkSize / MIN_CHUNK_SIZE) * MIN_CHUNK_SIZE);
+    }
+    if (totalBytes > 128 * 1024 * 1024) {
+      return 32 * 1024 * 1024; // 32 MiB chunks for files > 128MB
+    }
+    if (totalBytes > 32 * 1024 * 1024) {
+      return 16 * 1024 * 1024; // 16 MiB chunks for files > 32MB
+    }
+    return this.defaultChunkSize; // 8 MiB default
+  }
+
+  /**
+   * Attaches real-time progress monitoring to direct stream uploads.
+   */
+  private wrapStreamWithProgress(
+    stream: NodeJS.ReadableStream,
+    totalBytes: number,
+    onProgress: (progress: UploadProgress) => void
+  ): NodeJS.ReadableStream {
+    let bytesSent = 0;
+    const startTime = Date.now();
+    const progressTransform = new Transform({
+      transform(chunk, _encoding, callback) {
+        bytesSent += chunk.length;
+        const elapsedSecs = (Date.now() - startTime) / 1000;
+        const bytesPerSecond = elapsedSecs > 0 ? Math.round(bytesSent / elapsedSecs) : 0;
+        const remainingBytes = Math.max(0, totalBytes - bytesSent);
+        const estimatedTimeRemainingSeconds = bytesPerSecond > 0 ? Math.round(remainingBytes / bytesPerSecond) : 0;
+        const percentage = totalBytes > 0 ? Math.min(100, Math.round((bytesSent / totalBytes) * 1000) / 10) : 100;
+
+        onProgress({
+          bytesSent,
+          totalBytes,
+          percentage,
+          bytesPerSecond,
+          speedFormatted: formatSpeed(bytesPerSecond),
+          estimatedTimeRemainingSeconds,
+          chunkIndex: 1,
+          totalChunks: 1,
+        });
+
+        callback(null, chunk);
+      },
+    });
+
+    return stream.pipe(progressTransform);
   }
 
   /**
@@ -156,9 +219,7 @@ export class ResumableUploader {
     options: UploadOptions;
   }): Promise<DriveApiFile> {
     const { filePath, totalBytes, fileName, mimeType, options } = params;
-    const chunkSize = options.chunkSize
-      ? Math.max(MIN_CHUNK_SIZE, Math.floor(options.chunkSize / MIN_CHUNK_SIZE) * MIN_CHUNK_SIZE)
-      : this.defaultChunkSize;
+    const chunkSize = this.computeAdaptiveChunkSize(totalBytes, options.chunkSize);
 
     // 1. Initiate Resumable Upload Session
     const sessionUrl = await this.initiateResumableSession({
@@ -243,9 +304,7 @@ export class ResumableUploader {
     options: UploadOptions;
   }): Promise<DriveApiFile> {
     const { buffer, totalBytes, fileName, mimeType, options } = params;
-    const chunkSize = options.chunkSize
-      ? Math.max(MIN_CHUNK_SIZE, Math.floor(options.chunkSize / MIN_CHUNK_SIZE) * MIN_CHUNK_SIZE)
-      : this.defaultChunkSize;
+    const chunkSize = this.computeAdaptiveChunkSize(totalBytes, options.chunkSize);
 
     const sessionUrl = await this.initiateResumableSession({
       fileName,
@@ -347,6 +406,7 @@ export class ResumableUploader {
         method: 'POST',
         headers,
         data: metadata,
+        agent: getOptimizedHttpsAgent(),
       });
     });
 
@@ -383,6 +443,7 @@ export class ResumableUploader {
           method: 'PUT',
           headers,
           data: buffer,
+          agent: getOptimizedHttpsAgent(),
           validateStatus: (status: number) => (status >= 200 && status < 300) || status === 308,
         });
 

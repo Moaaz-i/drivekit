@@ -18,6 +18,7 @@ export class PathResolver {
   private drive: drive_v3.Drive;
   private rootFolderId: string;
   private cache = new Map<string, CacheEntry>();
+  private inFlightResolves = new Map<string, Promise<{ id: string; name: string; isFolder: boolean; mimeType: string }>>();
   private cacheTTL: number;
   private enableCache: boolean;
   private metadataCache?: IMetadataCache;
@@ -83,6 +84,7 @@ export class PathResolver {
   /**
    * Resolves a path to a Google Drive item (file or folder).
    * If createIfMissing is true, any missing intermediate directories will be automatically created (like mkdir -p).
+   * Incorporates in-flight request coalescing to deduplicate concurrent resolutions of identical paths.
    */
   async resolve(
     virtualPath: string,
@@ -123,6 +125,27 @@ export class PathResolver {
       }
     }
 
+    // Coalesce in-flight requests for the exact same path
+    const flightKey = `${this.rootFolderId}:${norm}:${options.createIfMissing ? 'create' : 'read'}`;
+    const inFlight = this.inFlightResolves.get(flightKey);
+    if (inFlight) {
+      return await inFlight;
+    }
+
+    const task = this.doResolve(virtualPath, norm, options);
+    this.inFlightResolves.set(flightKey, task);
+    try {
+      return await task;
+    } finally {
+      this.inFlightResolves.delete(flightKey);
+    }
+  }
+
+  private async doResolve(
+    virtualPath: string,
+    norm: string,
+    options: { createIfMissing?: boolean }
+  ): Promise<{ id: string; name: string; isFolder: boolean; mimeType: string }> {
     const segments = norm.split('/').filter(Boolean);
     let currentParentId = this.rootFolderId;
     let currentPath = '';

@@ -27,6 +27,7 @@ import { withRetry } from '../utils/retry.js';
 import { formatBytes } from '../utils/format.js';
 import { GOOGLE_WORKSPACE_MIME_TYPES } from '../utils/mime.js';
 import { SqliteMetadataCache, type IMetadataCache, type CacheStats, type CacheFileEntry } from './cache.js';
+import { getOptimizedHttpsAgent } from '../utils/http-agent.js';
 
 export class DriveKit {
   private options: DriveKitOptions;
@@ -87,25 +88,26 @@ export class DriveKit {
   async init(): Promise<this> {
     if (!this.driveClient) {
       const auth = await this.authenticator.getAuthClient();
-      this.driveClient = drive({ version: 'v3', auth });
+      const agent = getOptimizedHttpsAgent();
+      this.driveClient = drive({ version: 'v3', auth, agent } as any) as unknown as drive_v3.Drive;
 
       if (this.options.enablePersistentCache !== false) {
         this.metadataCacheInstance = new SqliteMetadataCache(this.options.cacheDatabasePath);
         this.metadataCacheInstance.init();
       }
 
-      this.pathResolverInstance = new PathResolver(this.driveClient, this.rootFolderId, {
+      this.pathResolverInstance = new PathResolver(this.driveClient!, this.rootFolderId, {
         enableCache: this.options.enablePathCache ?? true,
         cacheTTL: this.options.pathCacheTTL,
         metadataCache: this.metadataCacheInstance || undefined,
       });
 
       this.uploaderInstance = new ResumableUploader(
-        this.driveClient,
+        this.driveClient!,
         this.options.uploadChunkSize || DEFAULT_CHUNK_SIZE
       );
 
-      this.downloaderInstance = new Downloader(this.driveClient);
+      this.downloaderInstance = new Downloader(this.driveClient!);
     }
     return this;
   }
@@ -188,26 +190,61 @@ export class DriveKit {
   }
 
   /**
-   * Lists contents of a folder (by folder ID or path)
+   * Lists contents of a folder (by folder ID or path) with opportunistic tree caching
    */
   async ls(folderIdOrPath = '/'): Promise<DriveApiFile[]> {
+    let parentFolderId: string;
+    let normalizedPath: string | null = null;
+    let files: DriveApiFile[];
+
     if (folderIdOrPath === '/' || folderIdOrPath === 'root' || folderIdOrPath === this.rootFolderId) {
+      parentFolderId = this.rootFolderId;
+      normalizedPath = '/';
       const parentFilter = this.rootFolderId === 'root'
         ? "'root' in parents or sharedWithMe = true"
         : `'${this.rootFolderId}' in parents`;
 
-      return await this.query()
+      files = await this.query()
         .raw(parentFilter)
         .notTrashed()
         .orderBy('folder,name')
         .list();
+    } else {
+      if (folderIdOrPath.startsWith('/')) {
+        normalizedPath = folderIdOrPath.replace(/\/+$/, '') || '/';
+        parentFolderId = await this.resolveId(normalizedPath);
+      } else {
+        parentFolderId = folderIdOrPath;
+      }
+
+      files = await this.query()
+        .inFolder(parentFolderId)
+        .notTrashed()
+        .orderBy('folder,name')
+        .list();
     }
-    const folderId = await this.resolveId(folderIdOrPath);
-    return await this.query()
-      .inFolder(folderId)
-      .notTrashed()
-      .orderBy('folder,name')
-      .list();
+
+    // Opportunistic Tree Caching: populate local SQLite metadata cache for 0ms subsequent queries
+    if (this.metadataCacheInstance && files.length > 0) {
+      const cacheEntries: CacheFileEntry[] = files
+        .filter((f) => !!f.id)
+        .map((f) => ({
+          id: f.id!,
+          name: f.name || 'untitled',
+          mimeType: f.mimeType || '',
+          size: f.size ? parseInt(f.size, 10) : undefined,
+          parentId: parentFolderId,
+          path: normalizedPath
+            ? `${normalizedPath === '/' ? '' : normalizedPath}/${f.name}`
+            : undefined,
+          md5Checksum: f.md5Checksum || undefined,
+          modifiedTime: f.modifiedTime || undefined,
+          trashed: false,
+        }));
+      this.metadataCacheInstance.upsertFiles(cacheEntries);
+    }
+
+    return files;
   }
 
   // ==========================================
@@ -327,17 +364,27 @@ export class DriveKit {
    * - Automatic conversion for Google Docs, Sheets, and Slides
    * - Progress events
    * - Saves directly to file or returns Readable Stream
+   * - Leverages local metadata cache to bypass redundant Google API roundtrips
    */
   async download(fileIdOrPath: string, options: DownloadOptions = {}) {
     const fileId = await this.resolveId(fileIdOrPath);
-    const processedOpts = await this.pluginManager.runBeforeDownload(fileId, options);
+    let cachedMeta = options.metadata;
+    if (!cachedMeta && this.metadataCacheInstance) {
+      const cached = this.metadataCacheInstance.getById(fileId);
+      if (cached && cached.name && cached.mimeType) {
+        cachedMeta = { name: cached.name, mimeType: cached.mimeType, size: cached.size };
+      }
+    }
+
+    const mergedOpts: DownloadOptions = cachedMeta ? { ...options, metadata: cachedMeta } : options;
+    const processedOpts = await this.pluginManager.runBeforeDownload(fileId, mergedOpts);
     const downloader = await this.getDownloader();
     const result = await downloader.download(fileId, processedOpts);
     return await this.pluginManager.runAfterDownload(result);
   }
 
   /**
-   * Gets file metadata
+   * Gets file metadata and updates the local metadata cache
    */
   async getFile(fileIdOrPath: string): Promise<DriveApiFile> {
     const fileId = await this.resolveId(fileIdOrPath);
@@ -351,7 +398,21 @@ export class DriveKit {
       });
     });
 
-    return res.data;
+    const file = res.data;
+    if (this.metadataCacheInstance && file.id) {
+      this.metadataCacheInstance.upsertFile({
+        id: file.id,
+        name: file.name || '',
+        mimeType: file.mimeType || '',
+        size: file.size ? parseInt(file.size, 10) : undefined,
+        parentId: file.parents?.[0],
+        path: fileIdOrPath.startsWith('/') ? fileIdOrPath : undefined,
+        modifiedTime: file.modifiedTime || undefined,
+        trashed: file.trashed || false,
+      });
+    }
+
+    return file;
   }
 
   /**
@@ -882,7 +943,7 @@ export class DriveKit {
   ): Promise<NodeJS.WritableStream & { done: Promise<DriveApiFile> }> {
     await this.init();
     const { PassThrough } = await import('node:stream');
-    const passThrough = new PassThrough();
+    const passThrough = new PassThrough({ highWaterMark: 1024 * 1024 });
 
     let resolveDone!: (file: DriveApiFile) => void;
     let rejectDone!: (err: Error) => void;

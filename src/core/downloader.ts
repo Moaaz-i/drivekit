@@ -25,22 +25,28 @@ export class Downloader {
     mimeType: string;
     size?: number;
   }> {
-    // 1. Fetch file metadata first
-    const metaRes = await withRetry(async () => {
-      return await this.drive.files.get({
-        fileId,
-        fields: 'id, name, mimeType, size',
-        supportsAllDrives: true,
-      });
-    });
+    // 1. Check if metadata is pre-provided or needs remote fetch
+    let name = options.metadata?.name;
+    let mimeType = options.metadata?.mimeType;
+    let totalBytes = options.metadata?.size;
 
-    const file = metaRes.data;
-    const name = file.name || 'downloaded-file';
-    const mimeType = file.mimeType || 'application/octet-stream';
-    const totalBytes = file.size ? parseInt(file.size, 10) : undefined;
+    if (!name || !mimeType) {
+      const metaRes = await withRetry(async () => {
+        return await this.drive.files.get({
+          fileId,
+          fields: 'id, name, mimeType, size',
+          supportsAllDrives: true,
+        });
+      });
+
+      const file = metaRes.data;
+      name = file.name || 'downloaded-file';
+      mimeType = file.mimeType || 'application/octet-stream';
+      totalBytes = file.size ? parseInt(file.size, 10) : undefined;
+    }
 
     let downloadStream: NodeJS.ReadableStream;
-    let finalFileName = name;
+    let finalFileName = name!;
 
     // 2. Determine if it's a Google Workspace document needing export
     if (isGoogleWorkspaceDoc(mimeType)) {
@@ -108,7 +114,7 @@ export class Downloader {
       }
 
       await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-      const writeStream = fs.createWriteStream(destPath);
+      const writeStream = fs.createWriteStream(destPath, { highWaterMark: 1024 * 1024 });
       await pipeline(monitoredStream, writeStream);
 
       return {

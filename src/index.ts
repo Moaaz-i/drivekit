@@ -49,4 +49,5 @@ export * from './auth/browser-login.js';
 export * from './utils/format.js';
 export * from './utils/mime.js';
 export * from './utils/retry.js';
+export * from './utils/http-agent.js';
 
