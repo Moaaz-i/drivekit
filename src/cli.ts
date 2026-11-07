@@ -10,7 +10,7 @@ import { runInteractiveExplorer, renderFileRow } from './cli/terminal-ui.js';
 
 const program = new Command();
 
-let pkgVersion = '1.1.1';
+let pkgVersion = '1.1.2';
 try {
   const pkgPath = new URL('../package.json', import.meta.url);
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));

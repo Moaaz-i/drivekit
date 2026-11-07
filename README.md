@@ -36,10 +36,16 @@ Working with the raw Google Drive API is often tedious:
 ## 🌟 Key Features
 
 - 📂 **Virtual Filesystem Paths**: Treat Drive like a filesystem (`/Backups/2026/DB.dump`). Auto-creates missing parents (`mkdirp`).
-- ⚡ **High-Speed Resumable Uploader**:
-  - Memory-efficient chunked uploads (configurable 8MB or 16MB chunk sizes).
-  - Auto-resumes from interrupted byte offset.
-  - Real-time metrics: **Percentage (%)**, **Live Speed (MB/s)**, and **ETA**.
+- ⚡ **DriveKit Turbo Engine (Native Speed)**:
+  - **HTTP Keep-Alive Connection Pooling**: Persistent socket management across up to 64 sockets, eliminating cold TLS handshakes.
+  - **In-Flight Request Coalescing**: Parallel requests to identical paths coalesce into a single execution, eliminating duplicate queries.
+  - **Opportunistic Tree Caching**: Calling `drive.ls('/path')` immediately indexes children into local SQLite for instant **0.03ms (0ms)** lookups.
+  - **Direct Multipart Fast Path**: Files ≤ 5MB upload in a single roundtrip while retaining real-time progress events.
+  - **Adaptive Chunk Sizing**: Automatically tunes chunk size (8MB, 16MB, 32MB) based on file size for maximum wire saturation.
+- 💾 **0ms Persistent SQLite Cache**: Local SQLite metadata index powered by Node 22 native `node:sqlite` (with transparent in-memory fallback).
+- 🖥️ **RFC 4918 WebDAV Server**: Mount Google Drive directly into macOS Finder or Windows Explorer with HTTP Basic Auth.
+- 🌊 **Node.js Streams & Range**: Memory-efficient streaming with `createReadStream`, `createWriteStream`, and HTTP 206 Partial Content (1MB highWaterMark).
+- 🧩 **Extensible Plugin System**: Lifecycle middleware (`beforeUpload`, `afterUpload`, `beforeDownload`, `afterDownload`) with built-in auto-naming and webhook plugins.
 - 🔍 **Fluent Query Builder**: Chainable methods (`.nameContains()`, `.mimeType()`, `.notTrashed()`, `.orderBy()`, `.pageSize()`).
 - 🛡️ **Adaptive Rate Limiting & Backoff**: Exponential backoff with full jitter automatically catches and retries `429` and `5xx` errors.
 - 🔄 **Parallel Directory Sync**: Concurrently sync entire local folder trees with configurable concurrency limit.

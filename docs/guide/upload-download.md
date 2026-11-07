@@ -22,6 +22,16 @@ const file = await drive.upload({
 });
 ```
 
+### 🏎️ Single-Roundtrip Fast Path (Files ≤ 5MB)
+For files, buffers, or streams under or equal to **5 MiB**, DriveKit automatically activates the **Direct Multipart Upload** path. This cuts network latency in half by eliminating the initial session-initiation HTTP roundtrip, uploading the file in a single request while still delivering real-time progress callbacks.
+
+### 📐 Adaptive Chunk Sizing
+For files exceeding 5MB, DriveKit dynamically scales chunk granularity based on file volume:
+- **Default**: **8 MiB** chunks for balanced memory and throughput.
+- **Large Files (> 32 MiB)**: Scales to **16 MiB** chunks.
+- **Huge Files (> 128 MiB)**: Scales to **32 MiB** chunks, reducing HTTP requests by up to 75%.
+- **Custom Granularity**: Explicit `chunkSize` option is always honored (quantized to multiples of 256 KiB).
+
 ---
 
 ## 📥 Download & Auto-Export (drive.download)

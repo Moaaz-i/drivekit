@@ -2,6 +2,35 @@
 
 ---
 
+## ⚡ DriveKit Turbo Engine (High-Throughput & Low-Latency)
+
+DriveKit integrates native-speed optimizations to eliminate protocol overhead and maximize saturation on high-bandwidth networks:
+
+### 1. HTTP Keep-Alive Connection Pooling
+Node.js default networking renegotiates TCP/TLS handshakes repeatedly, adding 150–300ms latency to every Google API roundtrip. DriveKit provides an embedded, persistent connection pool:
+- **Up to 64 Concurrent Sockets** (`maxSockets: 64`).
+- **32 Free Sockets** kept warm and reusable (`keepAliveMsecs: 60000`).
+- **TCP Nagle Bypass** (`noDelay: true`) for instant packet dispatch.
+- Applied automatically across Google Drive API v3 calls, resumable upload chunks, and OAuth token exchanges.
+
+```typescript
+import { getOptimizedHttpsAgent } from 'drivekit';
+
+// Inspect or customize the underlying pooling agent
+const agent = getOptimizedHttpsAgent({
+  maxSockets: 64,
+  keepAlive: true,
+});
+```
+
+### 2. In-Flight Request Coalescing (Single-Flight Deduplication)
+When concurrent operations target the same virtual directory (e.g., 20 parallel worker uploads resolving `/Backups/2026`), DriveKit coalesces identical in-flight resolutions into a **single network execution**. The first request initiates the lookup, while the remaining 19 wait on the same Promise, saving 95% of API quota and eliminating duplicate directory creation race conditions.
+
+### 3. Stream HighWaterMark Buffer Tuning
+Streaming operations (`createReadStream`, `createWriteStream`, and `download`) are configured with a **1 MiB highWaterMark** buffer (compared to Node's 16 KiB default), allowing gigabit network pipes to stream continuously without I/O context thrashing.
+
+---
+
 ## ⚡ Direct Access to Raw Client (`drive.getRawClient`)
 
 When you need specialized Google Drive API v3 endpoints (revisions, comments, webhooks, or team drives), get the authenticated official client instance:
